@@ -1,0 +1,16 @@
+Parties : This Smart Rental Contract ( the " Contract ") is entered into on 01/01/2025 , between 
+Landlord : ABC , residing in London , United Kingdom45 
+Tenant : XYZ , residing at Singapore , Singapore67 
+Property : The Landlord agrees to rent the following 
+property to the Tenant :89 Address : 123 Baker Street , London , NW1 4 NW
+Term : The term of this Contract shall be from 01/01/2025to 31/12/2025.
+Rent : The Tenant agrees to pay a monthly rent of GBP5000. Rent is due on the first day of each month .1415 Security 
+Deposit : The tenant shall deposit GBP 2000 as a security deposit upon signing this Contract . 
+The security deposit will be held by the Landlord and returned to the Tenant upon termination of the Contract , subject to any deductions for damages or unpaid rent.
+Utilities : The Tenant is responsible for paying all utility charges , including electricity , water , gas ,and internet .
+ Use of Property : The Tenant shall use the property solely as a private residence and shall not engage in any unlawful activities on the premises.
+Maintenance and Repairs : The Landlord is responsible for maintaining the property in good condition . The Tenant shall keep the property clean and sanitary.
+Termination : Either party may terminate this Contract with one month written notice to the other party .
+Governing Law : This Contract shall be governed by the laws of London , UK
+Date : 01/01/2025 ABC3031 
+[ Tenant 's Signature ]: Date : 01/01/2025 XYZ
