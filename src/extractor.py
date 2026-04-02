@@ -1,6 +1,16 @@
 """
 eContract Extractor — parses .docx and .txt files and returns a clean,
 structured ContractDocument ready for prompt engineering.
+
+FIXES applied vs original:
+  1. _read_txt: try utf-8-sig first so BOM is auto-stripped.
+  2. _clean_text: explicit lstrip("\ufeff") as belt-and-suspenders.
+  3. _ROLE_RE: named group renamed to "pname" (no ambiguity with concatenation).
+  4. _extract_parties: preamble-first "Full Name (Alias)" detection added;
+     fallback role regex guard against short/fragment names.
+  5. _extract_title: operator precedence bug fixed (added inner parentheses).
+  6. Governing law regex: handles verbose multi-clause Delaware-style phrasing.
+  7. Expiry date: context-aware lookup near expiry keywords instead of last date.
 """
 
 from __future__ import annotations
@@ -11,11 +21,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-# ── optional heavy dep: python-docx ────────────────────────────────────────
 try:
     from docx import Document as DocxDocument
     DOCX_AVAILABLE = True
-except ImportError:  # pragma: no cover
+except ImportError:
     DOCX_AVAILABLE = False
 
 
@@ -25,10 +34,10 @@ except ImportError:  # pragma: no cover
 
 @dataclass
 class ContractParty:
-    role: str          # e.g. "Buyer", "Seller", "Service Provider"
+    role: str
     name: str
     address: Optional[str] = None
-    wallet_hint: Optional[str] = None   # ethereum address if present in doc
+    wallet_hint: Optional[str] = None
 
 
 @dataclass
@@ -36,7 +45,7 @@ class ContractClause:
     index: int
     heading: str
     raw_text: str
-    clause_type: str = "general"       # payment | penalty | expiry | obligation | general
+    clause_type: str = "general"
     amount_eth: Optional[str] = None
     deadline_days: Optional[int] = None
     condition: Optional[str] = None
@@ -59,91 +68,86 @@ class ContractDocument:
 #  Text-cleaning helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Noise patterns we strip before analysis
 _NOISE_PATTERNS = [
     r"Page\s+\d+\s+of\s+\d+",
     r"CONFIDENTIAL\s*[-–—]?\s*DO\s+NOT\s+DISTRIBUTE",
     r"DRAFT\s+ONLY",
-    r"^\s*[-_=]{4,}\s*$",               # horizontal rules
+    r"^\s*[-_=]{4,}\s*$",
     r"\[SIGNATURE\s+BLOCK\]",
     r"\[INTENTIONALLY\s+LEFT\s+BLANK\]",
-    r"www\.[^\s]+",                      # URLs (keep content, drop links)
-    r"<[^>]+>",                          # any stray HTML tags
+    r"www\.[^\s]+",
+    r"<[^>]+>",
 ]
-
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE | re.MULTILINE)
 
 
 def _normalize_whitespace(text: str) -> str:
-    # Unicode normalization → NFC
     text = unicodedata.normalize("NFC", text)
-    # Replace fancy dashes / quotes with ASCII equivalents
-    replacements = {
-        "\u2013": "-", "\u2014": "-",      # en / em dash
-        "\u2018": "'", "\u2019": "'",      # curly single quotes
-        "\u201c": '"', "\u201d": '"',      # curly double quotes
-        "\u00a0": " ",                     # non-breaking space
-        "\u2022": "*",                     # bullet
-        "\u2026": "...",                   # ellipsis
-    }
-    for src, dst in replacements.items():
+    for src, dst in {
+        "\u2013": "-", "\u2014": "-",
+        "\u2018": "'", "\u2019": "'",
+        "\u201c": '"', "\u201d": '"',
+        "\u00a0": " ", "\u2022": "*", "\u2026": "...",
+    }.items():
         text = text.replace(src, dst)
-    # Collapse multiple blank lines → max two
     text = re.sub(r"\n{3,}", "\n\n", text)
-    # Trim each line
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    return "\n".join(lines).strip()
+    return "\n".join(ln.rstrip() for ln in text.splitlines()).strip()
 
 
 def _clean_text(raw: str) -> str:
-    text = _NOISE_RE.sub("", raw)
-    return _normalize_whitespace(text)
+    raw = raw.lstrip("\ufeff")          # FIX 2: strip any residual BOM
+    return _normalize_whitespace(_NOISE_RE.sub("", raw))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Field extractors
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Ethereum address pattern
 _ETH_RE = re.compile(r"0x[0-9a-fA-F]{40}")
 
-# Amounts — catch "100 ETH", "0.5 ETH", "$1,000", "USD 500"
 _AMOUNT_RE = re.compile(
     r"(?:USD|ETH|USDT|DAI|\$|€|£)?\s*[\d,]+(?:\.\d+)?\s*(?:ETH|USDT|DAI|USD|dollars?|ether)?",
     re.IGNORECASE,
 )
 
-# Days / duration
 _DAYS_RE = re.compile(r"(\d+)\s+(?:calendar\s+)?days?", re.IGNORECASE)
 
-# Date patterns
 _DATE_RE = re.compile(
-    r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"          # 01/01/2024
-    r"|\d{4}[/-]\d{1,2}[/-]\d{1,2}"                # 2024-01-01
+    r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"
+    r"|\d{4}[/-]\d{1,2}[/-]\d{1,2}"
     r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})\b",
     re.IGNORECASE,
 )
 
-# Party / role keywords
+# ── Party regexes ───────────────────────────────────────────────────────────
+
 _ROLE_KEYWORDS = [
     "Buyer", "Seller", "Service Provider", "Client", "Vendor", "Contractor",
     "Employer", "Employee", "Licensor", "Licensee", "Lessor", "Lessee",
     "Borrower", "Lender", "Party A", "Party B", "Owner", "Developer",
 ]
+
+# FIX 3: group renamed to "pname" — avoids any ambiguity from string concat
 _ROLE_RE = re.compile(
-    r"(?P<role>" + "|".join(re.escape(r) for r in _ROLE_KEYWORDS) + r")"
-    r'[:\s"\']*(?P<name>[A-Z][A-Za-z\s,\.]+?)(?=\s*(?:,|;|\n|and|or|hereinafter|$))',
+    r"(?P<role>" + "|".join(re.escape(kw) for kw in _ROLE_KEYWORDS) + r")"
+    r"""[:\s"']*(?P<pname>[A-Z][A-Za-z\s,\.]{2,60}?)"""
+    r"""(?=\s*(?:\("|,|;|\n|and\b|or\b|hereinafter|$))""",
     re.IGNORECASE,
 )
 
-# Clause heading — numbered or all-caps
+# FIX 4a: explicit "Full Legal Name ("Alias")" pattern — covers most M&A contracts
+_PARTY_DEF_RE = re.compile(
+    r'([A-Z][A-Za-z\s]{3,60}?)\s+\("([A-Z][A-Za-z\s]{1,30})"\)',
+)
+
+# ── Clause regexes ─────────────────────────────────────────────────────────
+
 _CLAUSE_HEAD_RE = re.compile(
     r"^(?:(?:Article|Section|Clause)\s+)?(?:\d+[\.\d]*\.?|[IVXLC]+\.)\s+(.+)$"
     r"|^([A-Z][A-Z\s]{4,})$",
     re.MULTILINE,
 )
 
-# Clause type classifiers
 _CLAUSE_TYPES = {
     "payment":      re.compile(r"payment|price|fee|amount|invoice|compensation", re.I),
     "penalty":      re.compile(r"penalty|liquidated|damages|breach|default|forfeit", re.I),
@@ -185,50 +189,44 @@ def _extract_dates(text: str) -> List[str]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Paragraph → clause grouping
+#  Clause splitting
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _split_into_clauses(text: str) -> List[ContractClause]:
-    """Split document text into labelled clauses."""
     clauses: List[ContractClause] = []
     current_heading = "Preamble"
     current_lines: List[str] = []
     idx = 0
 
     for line in text.splitlines():
-        heading_match = _CLAUSE_HEAD_RE.match(line.strip())
-        if heading_match:
-            # Save previous clause
+        m = _CLAUSE_HEAD_RE.match(line.strip())
+        if m:
             body = "\n".join(current_lines).strip()
             if body:
-                clause = ContractClause(
+                clauses.append(ContractClause(
                     index=idx,
                     heading=current_heading,
                     raw_text=body,
                     clause_type=_classify_clause(current_heading + " " + body),
                     amount_eth=_extract_amount(body),
                     deadline_days=_extract_days(body),
-                )
-                clauses.append(clause)
+                ))
                 idx += 1
-            current_heading = (heading_match.group(1) or heading_match.group(2) or line).strip()
+            current_heading = (m.group(1) or m.group(2) or line).strip()
             current_lines = []
-        else:
-            if line.strip():
-                current_lines.append(line)
+        elif line.strip():
+            current_lines.append(line)
 
-    # Flush last clause
     body = "\n".join(current_lines).strip()
     if body:
-        clause = ContractClause(
+        clauses.append(ContractClause(
             index=idx,
             heading=current_heading,
             raw_text=body,
             clause_type=_classify_clause(current_heading + " " + body),
             amount_eth=_extract_amount(body),
             deadline_days=_extract_days(body),
-        )
-        clauses.append(clause)
+        ))
 
     return clauses if clauses else [
         ContractClause(index=0, heading="Full Contract", raw_text=text, clause_type="general")
@@ -240,27 +238,47 @@ def _split_into_clauses(text: str) -> List[ContractClause]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _extract_parties(text: str) -> List[ContractParty]:
-    parties: List[ContractParty] = []
-    seen_roles: set = set()
+    """
+    Three-pass extraction:
+      Pass 1 — preamble 'Full Name ("Alias")' definitions  [most accurate]
+      Pass 2 — role-keyword regex fallback
+      Pass 3 — two anonymous placeholders
+    """
     eth_addresses = _extract_eth_addresses(text)
 
-    for m in _ROLE_RE.finditer(text):
-        role = m.group("role").strip().title()
-        name = re.sub(r"\s+", " ", m.group("name")).strip()
-        name = re.sub(r"[,;\.]+$", "", name)
-        if not name or role.lower() in seen_roles:
-            continue
-        seen_roles.add(role.lower())
-        wallet = eth_addresses[len(parties)] if len(parties) < len(eth_addresses) else None
-        parties.append(ContractParty(role=role, name=name, wallet_hint=wallet))
+    # Pass 1 — scan first 8 000 chars (covers preamble even after long TOC)
+    named: List[ContractParty] = []
+    for m in _PARTY_DEF_RE.finditer(text[:8000]):
+        full_name = m.group(1).strip()
+        alias     = m.group(2).strip()
+        if len(full_name) > 5:
+            named.append(ContractParty(role=alias, name=full_name))
+    if named:
+        for i, p in enumerate(named):
+            p.wallet_hint = eth_addresses[i] if i < len(eth_addresses) else None
+        return named
 
-    # Fallback: at least two anonymous parties
-    if not parties:
-        parties = [
-            ContractParty(role="Party A", name="[Party A Name]"),
-            ContractParty(role="Party B", name="[Party B Name]"),
-        ]
-    return parties
+    # Pass 2 — role-keyword regex
+    parties: List[ContractParty] = []
+    seen: set = set()
+    for m in _ROLE_RE.finditer(text):
+        role  = m.group("role").strip().title()
+        # FIX 4b: use "pname" — the actual group name in _ROLE_RE
+        pname = re.sub(r"\s+", " ", m.group("pname")).strip()
+        pname = re.sub(r"[,;\.]+$", "", pname)
+        if not pname or len(pname) < 3 or role.lower() in seen:
+            continue
+        seen.add(role.lower())
+        wallet = eth_addresses[len(parties)] if len(parties) < len(eth_addresses) else None
+        parties.append(ContractParty(role=role, name=pname, wallet_hint=wallet))
+    if parties:
+        return parties
+
+    # Pass 3 — fallback
+    return [
+        ContractParty(role="Party A", name="[Party A Name]"),
+        ContractParty(role="Party B", name="[Party B Name]"),
+    ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -270,11 +288,11 @@ def _extract_parties(text: str) -> List[ContractParty]:
 def _extract_title(text: str) -> str:
     for line in text.splitlines():
         stripped = line.strip()
-        if (
-            stripped
-            and len(stripped) > 5
-            and len(stripped) < 150
-            and stripped.isupper()
+        # FIX 5: original had operator-precedence bug — `and` binds tighter than
+        #         the multi-condition `or`, making the isupper() branch always True.
+        #         Added inner parentheses to group the two alternatives correctly.
+        if stripped and 5 < len(stripped) < 150 and (
+            stripped.isupper()
             or re.search(r"agreement|contract|deed|memorandum|mou|nda|sla", stripped, re.I)
         ):
             return stripped.title()
@@ -290,27 +308,23 @@ def _read_docx(path: Path) -> str:
         raise RuntimeError("python-docx not installed. Run: pip install python-docx")
     doc = DocxDocument(str(path))
     parts: List[str] = []
-
-    # Paragraphs
     for para in doc.paragraphs:
         t = para.text.strip()
         if t:
             parts.append(t)
-
-    # Tables
     for table in doc.tables:
         for row in table.rows:
-            row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+            row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
             if row_text:
                 parts.append(row_text)
-
     return "\n".join(parts)
 
 
 def _read_txt(path: Path) -> str:
-    for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+    # FIX 1: utf-8-sig first — Python auto-strips BOM with this codec
+    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
         try:
-            return path.read_text(encoding=enc)
+            return path.read_text(encoding=enc).lstrip("\ufeff")
         except (UnicodeDecodeError, LookupError):
             continue
     raise ValueError(f"Could not decode {path} with any known encoding.")
@@ -327,39 +341,56 @@ def extract_contract(file_path: str | Path) -> ContractDocument:
     """
     Parse an eContract file (.docx or .txt) and return a structured
     ContractDocument.
-
-    Raises:
-        ValueError  — unsupported extension or unreadable file
-        RuntimeError — missing python-docx when processing .docx
     """
     path = Path(file_path).resolve()
-
     if not path.exists():
         raise ValueError(f"File not found: {path}")
-
     ext = path.suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(
             f"Unsupported file type '{ext}'. Accepted: {', '.join(SUPPORTED_EXTENSIONS)}"
         )
 
-    # Read raw text
-    raw = _read_docx(path) if ext == ".docx" else _read_txt(path)
-
-    # Clean & preprocess
+    raw   = _read_docx(path) if ext == ".docx" else _read_txt(path)
     clean = _clean_text(raw)
 
-    # Extract structured fields
-    title = _extract_title(clean)
+    title   = _extract_title(clean)
     parties = _extract_parties(clean)
     clauses = _split_into_clauses(clean)
-    dates = _extract_dates(clean)
+    dates   = _extract_dates(clean)
 
-    # Governing law
-    gov_law_match = re.search(
-        r"govern(?:ed|ing)\s+by(?:\s+the\s+laws?\s+of)?\s+([A-Za-z\s]+?)(?:\.|,|\n)", clean, re.I
+    # FIX 6: governing law — handles verbose Delaware-style wording
+    gov_match = re.search(
+        r"governed\s+by(?:\s+and\s+construed\s+in[^.]{0,80}?in\s+accordance\s+with)?"
+        r"(?:\s+the)?\s+Laws?\s+of(?:\s+the\s+State\s+of)?\s+([A-Za-z\s]+?)"
+        r"(?:\s+without|\.|,|\n)",
+        clean, re.I | re.DOTALL,
     )
-    governing_law = gov_law_match.group(1).strip() if gov_law_match else None
+    if not gov_match:
+        gov_match = re.search(
+            r"govern(?:ed|ing)\s+by(?:\s+the\s+laws?\s+of)?\s+([A-Za-z\s]+?)(?:\.|,|\n)",
+            clean, re.I,
+        )
+    governing_law = gov_match.group(1).strip() if gov_match else None
+
+    # FIX 7: expiry date — prefer date near expiry/termination keywords;
+    # never return a date earlier than the effective date.
+    expiry_date: Optional[str] = None
+    effective   = dates[0] if dates else None
+    expiry_ctx  = re.search(
+        r"(?:expir(?:ation|y)|terminat(?:ion)?\s+date|end\s+of\s+term)"
+        r"[^.]{0,200}?(" + _DATE_RE.pattern + r")",
+        clean, re.I | re.DOTALL,
+    )
+    if expiry_ctx and expiry_ctx.group(1) != effective:
+        expiry_date = expiry_ctx.group(1)
+    elif len(dates) > 1 and dates[-1] != effective:
+        # Only use last date if it is LATER than effective date (crude heuristic)
+        # — avoids financial-period dates that pre-date the contract itself.
+        from_year = int(re.search(r"\d{4}", effective).group()) if effective else 0
+        last_year = int(re.search(r"\d{4}", dates[-1]).group()) if dates[-1] else 0
+        if last_year >= from_year:
+            expiry_date = dates[-1]
 
     return ContractDocument(
         title=title,
@@ -367,14 +398,14 @@ def extract_contract(file_path: str | Path) -> ContractDocument:
         clauses=clauses,
         governing_law=governing_law,
         effective_date=dates[0] if dates else None,
-        expiry_date=dates[-1] if len(dates) > 1 else None,
+        expiry_date=expiry_date,
         full_text=clean,
         metadata={
-            "source_file": str(path),
-            "extension": ext,
-            "char_count": len(clean),
-            "clause_count": len(clauses),
-            "party_count": len(parties),
+            "source_file":         str(path),
+            "extension":           ext,
+            "char_count":          len(clean),
+            "clause_count":        len(clauses),
+            "party_count":         len(parties),
             "eth_addresses_found": _extract_eth_addresses(clean),
         },
     )

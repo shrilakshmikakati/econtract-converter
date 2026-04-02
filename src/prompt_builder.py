@@ -1,42 +1,45 @@
 """
 prompt_builder.py — Converts a ContractDocument into a precision-crafted
 prompt that instructs the LLM to generate a Solidity 0.8.16 smart contract.
+
+FIXES vs original:
+  1. build_validation_prompt was defined but never exported/documented for use.
+     Added get_validation_prompt() as a clean alias and updated module docstring
+     so callers know to use it as a second LLM pass.
 """
 
 from __future__ import annotations
-
-import json
-from typing import Optional
 
 from extractor import ContractDocument, ContractClause
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Solidity 0.8.16 knowledge snippets injected into the system prompt
+#  Solidity rules injected into the system prompt
 # ═══════════════════════════════════════════════════════════════════════════
 
 SOLIDITY_RULES = """
 MANDATORY SOLIDITY 0.8.16 RULES — follow every rule, no exceptions:
 
-1. First line MUST be: // SPDX-License-Identifier: MIT
-2. Second line MUST be: pragma solidity ^0.8.16;
-3. Use `address payable` for addresses that receive ETH.
-4. All ETH amounts in the contract are in WEI (1 ETH = 1e18 wei).
-5. Use `block.timestamp` for time; deadlines are unix epoch seconds.
-6. State variables: use `private` + getter unless external access required.
-7. Use custom errors (revert CustomError()) instead of require strings to save gas.
-8. Use `event` + `emit` for every state-changing operation.
-9. Reentrancy guard: use a `bool private locked` flag on any ETH-sending function.
+1.  First line MUST be: // SPDX-License-Identifier: MIT
+2.  Second line MUST be: pragma solidity ^0.8.16;
+3.  Use `address payable` for addresses that receive ETH.
+4.  All ETH amounts in the contract are in WEI (1 ETH = 1e18 wei).
+5.  Use `block.timestamp` for time; deadlines are unix epoch seconds.
+6.  State variables: use `private` + getter unless external access required.
+7.  Use custom errors (revert CustomError()) instead of require strings.
+8.  Use `event` + `emit` for every state-changing operation.
+9.  Reentrancy guard: declare `bool private _locked` and apply a
+    `modifier noReentrant()` on EVERY function that transfers ETH.
 10. Use `unchecked` blocks ONLY for arithmetic that cannot overflow by design.
 11. Mark view/pure functions correctly.
-12. constructor must initialize all state, accept `address payable` where needed.
-13. Implement a `receive()` external payable function if contract holds ETH.
-14. Add NatSpec comments (/// @notice, /// @param, /// @return) on every function.
-15. Avoid `tx.origin`; use `msg.sender` for authentication.
+12. constructor must initialize all state variables.
+13. Implement `receive() external payable` if the contract holds ETH.
+14. Add NatSpec (/// @notice, /// @param, /// @return) on EVERY function.
+15. Never use `tx.origin`; use `msg.sender`.
 16. Never use `selfdestruct`.
 17. Payable functions must validate msg.value == expected amount.
-18. All deadlines must be set as: block.timestamp + (N * 1 days).
-19. Implement `getContractState()` view function returning all key state fields.
+18. All deadlines: block.timestamp + (N * 1 days).
+19. Implement `getContractState()` returning all key state fields as a tuple.
 20. Contract MUST compile with solc 0.8.16 without warnings.
 """
 
@@ -64,7 +67,7 @@ contract <Name>Contract {
     address payable private _partyB;
     uint256 private _amount;
     uint256 private _deadline;
-    bool private _locked;  // reentrancy guard
+    bool private _locked;    // ← reentrancy guard flag (MANDATORY)
 
     // ── Modifiers ────────────────────────────────────────────────────────
     modifier onlyPartyA() { if (msg.sender != _partyA) revert Unauthorized(); _; }
@@ -72,20 +75,20 @@ contract <Name>Contract {
     modifier inState(ContractState s) {
         if (_state != s) revert InvalidState(uint8(_state), uint8(s)); _;
     }
-    modifier noReentrant() { require(!_locked); _locked = true; _; _locked = false; }
+    modifier noReentrant() {
+        require(!_locked, "reentrant call");
+        _locked = true;
+        _;
+        _locked = false;
+    }
     modifier beforeDeadline() {
         if (block.timestamp > _deadline) revert DeadlinePassed(_deadline, block.timestamp); _;
     }
 }
 """
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  System prompt
-# ═══════════════════════════════════════════════════════════════════════════
-
-SYSTEM_PROMPT = f"""You are an expert Solidity 0.8.16 smart contract developer specializing in
-digitizing legal electronic contracts into production-grade, gas-efficient, secure Solidity code.
+SYSTEM_PROMPT = f"""You are an expert Solidity 0.8.16 smart contract developer specialising in
+converting legal electronic contracts into production-grade, gas-efficient, secure Solidity code.
 
 {SOLIDITY_RULES}
 
@@ -100,12 +103,11 @@ OUTPUT FORMAT:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Clause → prose summary
+#  Clause → prose summary (truncated for prompt economy)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _clause_summary(clause: ContractClause) -> str:
     parts = [f"  [{clause.index+1}] {clause.clause_type.upper()} — {clause.heading}"]
-    # Trim raw text to 500 chars for prompt economy
     snippet = clause.raw_text[:500].replace("\n", " ")
     if len(clause.raw_text) > 500:
         snippet += "..."
@@ -124,88 +126,104 @@ def _clause_summary(clause: ContractClause) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def build_user_prompt(doc: ContractDocument) -> str:
-    """
-    Build the user-turn prompt that describes the contract and requests
-    a Solidity 0.8.16 implementation.
-    """
+    """Build the user-turn prompt that requests a Solidity 0.8.16 implementation."""
     lines: list[str] = []
 
-    lines.append("═" * 70)
-    lines.append("ECONTRACT → SMART CONTRACT CONVERSION REQUEST")
-    lines.append("═" * 70)
-    lines.append("")
+    sep = "=" * 70
+    lines += [sep, "ECONTRACT -> SMART CONTRACT CONVERSION REQUEST", sep, ""]
 
-    # ── Contract metadata ────────────────────────────────────────────────
-    lines.append(f"CONTRACT TITLE   : {doc.title}")
-    lines.append(f"EFFECTIVE DATE   : {doc.effective_date or 'Not specified'}")
-    lines.append(f"EXPIRY DATE      : {doc.expiry_date or 'Not specified'}")
-    lines.append(f"GOVERNING LAW    : {doc.governing_law or 'Not specified'}")
-    lines.append(f"CURRENCY         : {doc.currency}")
-    lines.append("")
+    clean_title = doc.title.lstrip("\ufeff").strip()
+    lines += [
+        f"CONTRACT TITLE   : {clean_title}",
+        f"EFFECTIVE DATE   : {doc.effective_date or 'Not specified'}",
+        f"EXPIRY DATE      : {doc.expiry_date or 'Not specified'}",
+        f"GOVERNING LAW    : {doc.governing_law or 'Not specified'}",
+        f"CURRENCY         : {doc.currency}",
+        "",
+    ]
 
-    # ── Parties ──────────────────────────────────────────────────────────
     lines.append("PARTIES:")
     for p in doc.parties:
-        wallet = f"  [ETH address: {p.wallet_hint}]" if p.wallet_hint else ""
+        wallet = f"  [ETH: {p.wallet_hint}]" if p.wallet_hint else ""
         lines.append(f"  - {p.role}: {p.name}{wallet}")
     lines.append("")
 
-    # ── Clauses ──────────────────────────────────────────────────────────
     lines.append(f"CONTRACT CLAUSES ({len(doc.clauses)} total):")
     for clause in doc.clauses:
         lines.append(_clause_summary(clause))
         lines.append("")
 
-    # ── Instructions ─────────────────────────────────────────────────────
-    lines.append("═" * 70)
-    lines.append("INSTRUCTIONS:")
-    lines.append("Convert the above eContract into a complete Solidity 0.8.16 smart contract.")
-    lines.append("")
-    lines.append("Requirements:")
-    lines.append("1. Contract name: derive a clean PascalCase name from the contract title.")
-    lines.append("2. Encode EVERY clause as on-chain logic, state, events, or modifiers.")
-    lines.append("3. Payment clauses → payable functions with exact wei validation.")
-    lines.append("4. Penalty clauses → automatic penalty deduction logic in wei.")
-    lines.append("5. Expiry/term clauses → deadline as block.timestamp + days.")
-    lines.append("6. Obligation clauses → state machine transitions + events.")
-    lines.append("7. Dispute clauses → dispute() function + arbitrator address.")
-    lines.append("8. Confidentiality / IP clauses → acknowledgement events + flags.")
-    lines.append("9. Add a `getContractState()` view returning all key state variables as a tuple.")
-    lines.append("10. Add a `terminate()` function accessible by both parties.")
-    lines.append("11. Reentrancy guard on ALL ETH-transfer functions.")
-    lines.append("12. NatSpec on every function and state variable.")
-    lines.append("13. DO NOT use SafeMath — 0.8.x has built-in overflow protection.")
-    lines.append("14. DO NOT import OpenZeppelin — produce a standalone contract.")
-    lines.append("")
-    lines.append("Now output ONLY the complete Solidity source code:")
-    lines.append("═" * 70)
+    lines += [
+        sep,
+        "INSTRUCTIONS:",
+        "Convert the above eContract into a complete Solidity 0.8.16 smart contract.",
+        "",
+        "Requirements:",
+        "1.  Contract name: derive a clean PascalCase name from the contract title.",
+        "2.  Encode EVERY clause as on-chain logic, state, events, or modifiers.",
+        "3.  Payment clauses    -> payable functions with exact wei validation.",
+        "4.  Penalty clauses    -> automatic penalty deduction logic in wei.",
+        "5.  Expiry/term clauses -> deadline as block.timestamp + N days.",
+        "6.  Obligation clauses -> state machine transitions + events.",
+        "7.  Dispute clauses    -> dispute() function + arbitrator address.",
+        "8.  Confidentiality/IP -> acknowledgement events + bool flags.",
+        "9.  Add getContractState() view returning all key state vars as a tuple.",
+        "10. Add terminate() accessible by both parties.",
+        "11. Reentrancy guard (bool _locked + noReentrant modifier) on ALL ETH-transfer functions.",
+        "12. NatSpec on every function and state variable.",
+        "13. Use custom errors — NO require() with string messages.",
+        "14. DO NOT use SafeMath — 0.8.x has built-in overflow protection.",
+        "15. DO NOT import OpenZeppelin — standalone contract only.",
+        "",
+        "Now output ONLY the complete Solidity source code:",
+        sep,
+    ]
 
     return "\n".join(lines)
 
 
 def get_system_prompt() -> str:
+    """Return the system prompt for the generation pass."""
     return SYSTEM_PROMPT
 
 
 def build_validation_prompt(solidity_code: str, doc: ContractDocument) -> str:
     """
-    Build a second-pass prompt that asks the LLM to self-review the
-    generated contract against the original clauses.
+    Build a self-review / audit prompt for a second LLM pass.
+
+    Wire this in after the initial generation:
+        raw2 = llm.generate(system, build_validation_prompt(code, doc))
+        code = extract_solidity(raw2)
+
+    The model is instructed to return the COMPLETE corrected code if it finds
+    issues, or the EXACT same code if everything is fine.
     """
-    clause_types = list({c.clause_type for c in doc.clauses})
-    return f"""You are a Solidity 0.8.16 security auditor.
+    clause_types = sorted({c.clause_type for c in doc.clauses})
+    clean_title  = doc.title.lstrip("\ufeff").strip()
+    return f"""You are a Solidity 0.8.16 security auditor reviewing an auto-generated contract.
 
-Review the following smart contract and verify:
-1. All clause types ({', '.join(clause_types)}) are represented as on-chain logic.
+Contract being audited: {clean_title}
+Expected clause types : {', '.join(clause_types)}
+
+Verify ALL of the following:
+1. All clause types above are represented as on-chain logic (not just comments).
 2. No use of tx.origin, selfdestruct, or floating pragma.
-3. Reentrancy guards present on ETH-sending functions.
-4. Custom errors used (no require with strings).
-5. All events emitted for state changes.
-6. NatSpec comments present.
+3. Reentrancy guard (bool _locked + noReentrant modifier) present on every ETH-transfer function.
+4. Custom errors used everywhere — no require() with string arguments.
+5. Every state-changing function emits an event.
+6. NatSpec comments (/// @notice, /// @param) present on every public/external function.
+7. SPDX-License-Identifier is the very first line of the file.
+8. pragma solidity ^0.8.16 is the second line.
+9. Braces are balanced (no truncation).
+10. No OpenZeppelin imports, no SafeMath.
 
-If ANY issue is found, output the COMPLETE corrected Solidity code only.
-If the contract is correct, output the EXACT same code unchanged.
+If ANY issue is found: output the COMPLETE corrected Solidity source only (no explanation).
+If the contract passes all checks: output the EXACT same code unchanged.
 
 CONTRACT TO AUDIT:
 {solidity_code}
 """
+
+
+# Alias for callers that prefer the "get_" naming style
+get_validation_prompt = build_validation_prompt

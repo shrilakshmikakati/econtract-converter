@@ -1,6 +1,11 @@
 """
 postprocessor.py — Cleans the raw LLM output, applies deterministic
 Solidity fixes, and generates the final output artefacts.
+
+FIXES applied vs original:
+  1. _add_version_comment: banner now inserted AFTER pragma line so
+     SPDX-License-Identifier stays as the very first line (solc requirement).
+  2. _add_version_comment: title is stripped of BOM/whitespace before use.
 """
 
 from __future__ import annotations
@@ -8,7 +13,6 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
@@ -16,18 +20,15 @@ from extractor import ContractDocument
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Solidity fixes applied deterministically (no LLM needed)
+#  Deterministic Solidity fixes
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _fix_pragma(code: str) -> str:
-    """Ensure the pragma is exactly 0.8.16."""
-    # Replace any 0.8.x pragma
     code = re.sub(
         r"pragma\s+solidity\s+[\^~]?0\.\d+\.\d+;",
         "pragma solidity ^0.8.16;",
         code,
     )
-    # If no pragma at all, inject one after SPDX
     if "pragma solidity" not in code:
         code = re.sub(
             r"(//\s*SPDX-License-Identifier:[^\n]+\n)",
@@ -38,40 +39,28 @@ def _fix_pragma(code: str) -> str:
 
 
 def _fix_spdx(code: str) -> str:
-    """Ensure SPDX header is present as the first non-blank line."""
     if "SPDX-License-Identifier" not in code:
         code = "// SPDX-License-Identifier: MIT\n" + code
     return code
 
 
 def _fix_trailing_whitespace(code: str) -> str:
-    lines = [ln.rstrip() for ln in code.splitlines()]
-    return "\n".join(lines).strip() + "\n"
+    return "\n".join(ln.rstrip() for ln in code.splitlines()).strip() + "\n"
 
 
 def _fix_safemath(code: str) -> str:
-    """Remove SafeMath imports/usage — not needed in 0.8.x."""
-    # Remove import statements for SafeMath
     code = re.sub(r'import\s+["\'].*[Ss]afe[Mm]ath.*["\'];\n?', "", code)
-    # Remove `using SafeMath for ...;`
     code = re.sub(r"using\s+SafeMath\s+for\s+[^;]+;\n?", "", code)
     return code
 
 
 def _fix_openzeppelin_imports(code: str) -> str:
-    """
-    Remove OpenZeppelin imports and replace with inline equivalents.
-    We generate standalone contracts.
-    """
-    # Remove all @openzeppelin imports
     code = re.sub(r'import\s+["\']@openzeppelin/[^"\']+["\'];\n?', "", code)
-    # Remove `is Ownable` etc. — keep contract body intact
     code = re.sub(r"\bis\s+(?:Ownable|ReentrancyGuard|Pausable)\b", "", code)
     return code
 
 
 def _fix_selfdestruct(code: str) -> str:
-    """Replace selfdestruct with a comment."""
     return re.sub(
         r"selfdestruct\s*\([^)]*\)\s*;",
         "// selfdestruct removed — deprecated in Solidity 0.8.x",
@@ -80,16 +69,13 @@ def _fix_selfdestruct(code: str) -> str:
 
 
 def _fix_tx_origin(code: str) -> str:
-    """Replace tx.origin auth with msg.sender."""
     return re.sub(r"\btx\.origin\b", "msg.sender /* was tx.origin — fixed */", code)
 
 
 def _add_receive_if_missing(code: str) -> str:
-    """If contract has payable functions but no receive(), add one."""
     has_payable = "payable" in code
     has_receive = "receive()" in code
     if has_payable and not has_receive:
-        # Insert before the last `}` of the contract
         idx = code.rfind("}")
         if idx != -1:
             inject = (
@@ -101,22 +87,65 @@ def _add_receive_if_missing(code: str) -> str:
 
 
 def _add_version_comment(code: str, doc: ContractDocument) -> str:
-    """Prepend a generated-by banner."""
+    """
+    FIX 1 + 2: Insert the generated-by banner AFTER the pragma line so the
+    file order is:
+        // SPDX-License-Identifier: MIT   ← line 1  (solc requires this first)
+        pragma solidity ^0.8.16;          ← line 2
+        // ═══ banner ═══                 ← lines 3-9
+        contract ...
+
+    Also strips BOM / leading whitespace from the title string.
+    """
+    clean_title = doc.title.lstrip("\ufeff").strip()
     banner = (
-        f"// ═══════════════════════════════════════════════════════════════\n"
-        f"// Contract : {doc.title}\n"
+        "\n"
+        "// =================================================================\n"
+        f"// Contract : {clean_title}\n"
         f"// Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n"
-        f"// Tool     : eContract → Smart Contract Converter v1.0\n"
-        f"// Solidity : 0.8.16\n"
-        f"// WARNING  : Review thoroughly before deployment on mainnet.\n"
-        f"// ═══════════════════════════════════════════════════════════════\n"
+        "// Tool     : eContract -> Smart Contract Converter v2.0\n"
+        "// Solidity : 0.8.16\n"
+        "// WARNING  : Review thoroughly before deployment on mainnet.\n"
+        "// =================================================================\n"
     )
+    # Insert after pragma line
+    pragma_m = re.search(r"(pragma solidity[^\n]+\n)", code)
+    if pragma_m:
+        pos = pragma_m.end()
+        return code[:pos] + banner + code[pos:]
+    # Fallback: insert after SPDX line
+    spdx_m = re.search(r"(//\s*SPDX-License-Identifier:[^\n]+\n)", code)
+    if spdx_m:
+        pos = spdx_m.end()
+        return code[:pos] + banner + code[pos:]
+    # Last resort: prepend
     return banner + code
 
 
+def _strip_existing_banner(code: str) -> str:
+    """
+    Remove any pre-existing generated-by banner block (lines starting with
+    // ═══ or // === before the SPDX line) so that re-processing a file
+    doesn't produce a double banner.
+    """
+    lines = code.splitlines(keepends=True)
+    # Find where SPDX line is
+    spdx_idx = next(
+        (i for i, l in enumerate(lines) if "SPDX-License-Identifier" in l), None
+    )
+    if spdx_idx is None or spdx_idx == 0:
+        return code
+    # Drop everything before the SPDX line if it's all comment/blank lines
+    pre = lines[:spdx_idx]
+    if all(l.strip() == "" or l.strip().startswith("//") for l in pre):
+        return "".join(lines[spdx_idx:])
+    return code
+
+
 def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
-    """Apply all deterministic post-processing fixes."""
+    """Apply all deterministic post-processing fixes in the correct order."""
     code = raw_code
+    code = _strip_existing_banner(code)   # remove stale banner if re-processing
     code = _fix_spdx(code)
     code = _fix_pragma(code)
     code = _fix_safemath(code)
@@ -125,7 +154,7 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = _fix_tx_origin(code)
     code = _add_receive_if_missing(code)
     code = _fix_trailing_whitespace(code)
-    code = _add_version_comment(code, doc)
+    code = _add_version_comment(code, doc)   # must be last
     return code
 
 
@@ -134,7 +163,7 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _slugify(text: str) -> str:
-    """Convert title to snake_case filename."""
+    text = text.lstrip("\ufeff").strip()
     text = re.sub(r"[^\w\s-]", "", text.lower())
     text = re.sub(r"[\s-]+", "_", text).strip("_")
     return text or "contract"
@@ -146,7 +175,6 @@ def save_solidity(
     output_dir: Path,
     filename: Optional[str] = None,
 ) -> Path:
-    """Save the .sol file."""
     output_dir.mkdir(parents=True, exist_ok=True)
     name = filename or _slugify(doc.title)
     path = output_dir / f"{name}.sol"
@@ -161,13 +189,12 @@ def save_report(
     output_dir: Path,
     elapsed: float,
 ) -> Path:
-    """Save a JSON conversion report."""
     report = {
         "conversion_timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "elapsed_seconds": round(elapsed, 2),
         "source_file": doc.metadata.get("source_file", "unknown"),
         "output_file": str(sol_path),
-        "contract_title": doc.title,
+        "contract_title": doc.title.lstrip("\ufeff").strip(),
         "parties": [
             {"role": p.role, "name": p.name, "wallet": p.wallet_hint}
             for p in doc.parties
@@ -191,9 +218,8 @@ def save_human_readable_summary(
     sol_path: Path,
     output_dir: Path,
 ) -> Path:
-    """Save a human-readable .md summary of the conversion."""
     lines = [
-        f"# Smart Contract Summary: {doc.title}",
+        f"# Smart Contract Summary: {doc.title.lstrip(chr(0xFEFF)).strip()}",
         "",
         f"**Generated:** {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}  ",
         f"**Solidity Version:** 0.8.16  ",
@@ -230,7 +256,7 @@ def save_human_readable_summary(
         lines.append("")
 
     lines += [
-        "## ⚠️ Disclaimer",
+        "## Warning",
         "",
         "This contract was auto-generated from an eContract document. "
         "**Always have a qualified Solidity auditor review before mainnet deployment.**",
