@@ -1,11 +1,14 @@
 """
 postprocessor.py — Cleans the raw LLM output, applies deterministic
-Solidity fixes, and generates the final output artefacts.
+Solidity fixes, generates final output artefacts, and runs the full
+legal-compliance + Solidity-standard validation suite.
 
-FIXES applied vs original:
-  1. _add_version_comment: banner now inserted AFTER pragma line so
-     SPDX-License-Identifier stays as the very first line (solc requirement).
-  2. _add_version_comment: title is stripped of BOM/whitespace before use.
+CHANGES vs previous version:
+  • save_report() now accepts an optional ValidationReport and merges a
+    rich "smart_contract_validation" block into results.json, including
+    per-category accuracy scores and every individual test result.
+  • New helper run_contract_validation() wraps the validator import so
+    the rest of the pipeline can call it in one line.
 """
 
 from __future__ import annotations
@@ -88,14 +91,12 @@ def _add_receive_if_missing(code: str) -> str:
 
 def _add_version_comment(code: str, doc: ContractDocument) -> str:
     """
-    FIX 1 + 2: Insert the generated-by banner AFTER the pragma line so the
+    Insert the generated-by banner AFTER the pragma line so the
     file order is:
         // SPDX-License-Identifier: MIT   ← line 1  (solc requires this first)
         pragma solidity ^0.8.16;          ← line 2
         // ═══ banner ═══                 ← lines 3-9
         contract ...
-
-    Also strips BOM / leading whitespace from the title string.
     """
     clean_title = doc.title.lstrip("\ufeff").strip()
     banner = (
@@ -108,34 +109,24 @@ def _add_version_comment(code: str, doc: ContractDocument) -> str:
         "// WARNING  : Review thoroughly before deployment on mainnet.\n"
         "// =================================================================\n"
     )
-    # Insert after pragma line
     pragma_m = re.search(r"(pragma solidity[^\n]+\n)", code)
     if pragma_m:
         pos = pragma_m.end()
         return code[:pos] + banner + code[pos:]
-    # Fallback: insert after SPDX line
     spdx_m = re.search(r"(//\s*SPDX-License-Identifier:[^\n]+\n)", code)
     if spdx_m:
         pos = spdx_m.end()
         return code[:pos] + banner + code[pos:]
-    # Last resort: prepend
     return banner + code
 
 
 def _strip_existing_banner(code: str) -> str:
-    """
-    Remove any pre-existing generated-by banner block (lines starting with
-    // ═══ or // === before the SPDX line) so that re-processing a file
-    doesn't produce a double banner.
-    """
     lines = code.splitlines(keepends=True)
-    # Find where SPDX line is
     spdx_idx = next(
         (i for i, l in enumerate(lines) if "SPDX-License-Identifier" in l), None
     )
     if spdx_idx is None or spdx_idx == 0:
         return code
-    # Drop everything before the SPDX line if it's all comment/blank lines
     pre = lines[:spdx_idx]
     if all(l.strip() == "" or l.strip().startswith("//") for l in pre):
         return "".join(lines[spdx_idx:])
@@ -145,7 +136,7 @@ def _strip_existing_banner(code: str) -> str:
 def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     """Apply all deterministic post-processing fixes in the correct order."""
     code = raw_code
-    code = _strip_existing_banner(code)   # remove stale banner if re-processing
+    code = _strip_existing_banner(code)
     code = _fix_spdx(code)
     code = _fix_pragma(code)
     code = _fix_safemath(code)
@@ -156,6 +147,26 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = _fix_trailing_whitespace(code)
     code = _add_version_comment(code, doc)   # must be last
     return code
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Validation integration
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_contract_validation(sol_code: str, doc: ContractDocument):
+    """
+    Run the full legal + Solidity validation suite.
+    Returns a ValidationReport (or None if the validator module is missing).
+    """
+    try:
+        from test_contract_validator import run_all_validations
+        return run_all_validations(sol_code, doc)
+    except ImportError:
+        import logging
+        logging.getLogger("econtract").warning(
+            "test_contract_validator.py not found — skipping smart contract validation."
+        )
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -188,8 +199,20 @@ def save_report(
     issues: list[str],
     output_dir: Path,
     elapsed: float,
+    validation_report=None,   # Optional[ValidationReport]
 ) -> Path:
-    report = {
+    """
+    Write results.json.
+
+    If validation_report is provided (a ValidationReport from
+    test_contract_validator.run_all_validations), a full
+    "smart_contract_validation" block is embedded, including:
+      • accuracy_overall / per-category accuracy scores
+      • tests_passed / tests_failed / critical_failures
+      • per-test results (test_id, category, description, passed,
+        severity, detail)
+    """
+    report: dict = {
         "conversion_timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "elapsed_seconds": round(elapsed, 2),
         "source_file": doc.metadata.get("source_file", "unknown"),
@@ -203,10 +226,69 @@ def save_report(
         "effective_date": doc.effective_date,
         "expiry_date": doc.expiry_date,
         "governing_law": doc.governing_law,
-        "validation_issues": issues,
-        "validation_passed": len(issues) == 0,
+        # Legacy structural checks (from llm_client.validate_solidity_output)
+        "structural_validation_issues": issues,
+        "structural_validation_passed": len(issues) == 0,
         "char_count": doc.metadata.get("char_count", 0),
     }
+
+    # ── Smart contract legal + Solidity validation ─────────────────────
+    if validation_report is not None:
+        vr = validation_report
+        failed_tests = [
+            {
+                "test_id":     r.test_id,
+                "category":    r.category,
+                "description": r.description,
+                "severity":    r.severity,
+                "detail":      r.detail,
+            }
+            for r in vr.results if not r.passed
+        ]
+        passed_tests = [
+            {
+                "test_id":     r.test_id,
+                "category":    r.category,
+                "description": r.description,
+                "severity":    r.severity,
+            }
+            for r in vr.results if r.passed
+        ]
+
+        report["smart_contract_validation"] = {
+            # ── Top-level accuracy scores ──────────────────────────────
+            "accuracy_overall":       vr.accuracy_overall,
+            "accuracy_solidity":      vr.accuracy_solidity,
+            "accuracy_security":      vr.accuracy_security,
+            "accuracy_legal":         vr.accuracy_legal,
+            "accuracy_coverage":      vr.accuracy_coverage,
+
+            # ── Test counts ────────────────────────────────────────────
+            "tests_total":            vr.total_tests,
+            "tests_passed":           vr.passed,
+            "tests_failed":           vr.failed,
+            "critical_failures":      vr.critical_failures,
+
+            # ── Quality gate ───────────────────────────────────────────
+            "quality_gate_passed":    vr.critical_failures == 0 and vr.accuracy_overall >= 60.0,
+            "summary":                vr.summary,
+
+            # ── Detailed results ───────────────────────────────────────
+            "failed_tests":           failed_tests,
+            "passed_tests":           passed_tests,
+        }
+
+        # Also bubble up the headline accuracy to the top level for
+        # quick scanning in the Results dashboard
+        report["accuracy_score"]     = vr.accuracy_overall
+        report["validation_passed"]  = (
+            vr.critical_failures == 0 and vr.accuracy_overall >= 60.0
+        )
+    else:
+        report["smart_contract_validation"] = None
+        report["accuracy_score"]    = None
+        report["validation_passed"] = len(issues) == 0
+
     name = _slugify(doc.title) + "_report"
     path = output_dir / f"{name}.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -217,6 +299,7 @@ def save_human_readable_summary(
     doc: ContractDocument,
     sol_path: Path,
     output_dir: Path,
+    validation_report=None,   # Optional[ValidationReport]
 ) -> Path:
     lines = [
         f"# Smart Contract Summary: {doc.title.lstrip(chr(0xFEFF)).strip()}",
@@ -254,6 +337,36 @@ def save_human_readable_summary(
         if c.deadline_days:
             lines.append(f"- **Deadline:** {c.deadline_days} days")
         lines.append("")
+
+    # ── Validation summary section ─────────────────────────────────────
+    if validation_report is not None:
+        vr = validation_report
+        lines += [
+            "## Smart Contract Validation",
+            "",
+            f"| Category | Accuracy |",
+            f"|---|---|",
+            f"| **Overall** | **{vr.accuracy_overall:.1f}%** |",
+            f"| Solidity Standards | {vr.accuracy_solidity:.1f}% |",
+            f"| Security | {vr.accuracy_security:.1f}% |",
+            f"| Legal Faithfulness | {vr.accuracy_legal:.1f}% |",
+            f"| Clause Coverage | {vr.accuracy_coverage:.1f}% |",
+            "",
+            f"**Tests:** {vr.passed}/{vr.total_tests} passed  ",
+            f"**Critical Failures:** {vr.critical_failures}  ",
+            "",
+        ]
+
+        failed = [r for r in vr.results if not r.passed]
+        if failed:
+            lines.append("### Failed Tests")
+            lines.append("")
+            for r in failed:
+                icon = "🔴" if r.severity == "critical" else "🟠" if r.severity == "major" else "🟡"
+                lines.append(f"{icon} **{r.test_id}** [{r.severity}] — {r.description}")
+                if r.detail:
+                    lines.append(f"  > {r.detail}")
+            lines.append("")
 
     lines += [
         "## Warning",

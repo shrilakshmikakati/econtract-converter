@@ -26,7 +26,7 @@ logger = logging.getLogger("econtract.llm")
 #  Configuration
 # ═══════════════════════════════════════════════════════════════════════════
 
-DEFAULT_OLLAMA_URL   = "http://localhost:11434"
+DEFAULT_OLLAMA_URL   = "http://localhost:11434" 
 DEFAULT_MODEL        = "qwen2.5-coder:14b"
 REQUEST_TIMEOUT      = 300   # seconds — large contracts may take time
 MAX_RETRIES          = 3

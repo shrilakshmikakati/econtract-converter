@@ -12,6 +12,7 @@ Examples:
     python econtract_converter.py contract.txt --model qwen2.5-coder:7b --output ./out
     python econtract_converter.py contract.docx --dry-run
     python econtract_converter.py contract.txt --backend openai --model gpt-4o
+    python econtract_converter.py contract.txt --skip-validation
 """
 
 from __future__ import annotations
@@ -24,13 +25,18 @@ import time
 from pathlib import Path
 
 # ── Local modules ──────────────────────────────────────────────────────────
-# Add src/ to path when running from project root
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from extractor import extract_contract, SUPPORTED_EXTENSIONS
 from prompt_builder import build_user_prompt, get_system_prompt, build_validation_prompt
 from llm_client import LLMClient, LLMConfig, validate_solidity_output
-from postprocessor import apply_all_fixes, save_solidity, save_report, save_human_readable_summary
+from postprocessor import (
+    apply_all_fixes,
+    save_solidity,
+    save_report,
+    save_human_readable_summary,
+    run_contract_validation,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -56,7 +62,7 @@ logger = logging.getLogger("econtract")
 
 BANNER = r"""
 ╔══════════════════════════════════════════════════════════════╗
-║      eContract → Smart Contract Converter  v1.0              ║
+║      eContract → Smart Contract Converter  v2.0              ║
 ║      Solidity 0.8.16  |  Local LLM (Ollama)                  ║
 ╚══════════════════════════════════════════════════════════════╝
 """
@@ -69,7 +75,11 @@ BANNER = r"""
 def run_pipeline(args: argparse.Namespace) -> int:
     """
     Full conversion pipeline.
-    Returns exit code (0 = success, 1 = failure).
+    Exit codes:
+      0 — success, all validations passed
+      1 — hard failure (extraction / LLM error)
+      2 — generated but with structural warnings
+      3 — generated but failed legal/compliance quality gate
     """
     print(BANNER)
     t0 = time.monotonic()
@@ -98,7 +108,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     # ── Step 2: Extract contract ──────────────────────────────────────────
     logger.info("━" * 60)
-    logger.info("STEP 1/4  Extracting & preprocessing contract...")
+    logger.info("STEP 1/5  Extracting & preprocessing contract...")
     try:
         doc = extract_contract(input_path)
     except Exception as e:
@@ -115,7 +125,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     # ── Step 3: Build prompts ─────────────────────────────────────────────
     logger.info("━" * 60)
-    logger.info("STEP 2/4  Building LLM prompts...")
+    logger.info("STEP 2/5  Building LLM prompts...")
     system_prompt = get_system_prompt()
     user_prompt   = build_user_prompt(doc)
 
@@ -132,7 +142,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     # ── Step 4: LLM generation ────────────────────────────────────────────
     logger.info("━" * 60)
-    logger.info("STEP 3/4  Generating smart contract with LLM...")
+    logger.info("STEP 3/5  Generating smart contract with LLM...")
 
     cfg = LLMConfig(
         model=args.model,
@@ -143,7 +153,6 @@ def run_pipeline(args: argparse.Namespace) -> int:
     )
     client = LLMClient(cfg)
 
-    # Health check
     if not client.health_check():
         logger.error(
             f"Cannot reach LLM backend at {args.ollama_url}. "
@@ -151,14 +160,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Pull model if needed (Ollama only)
     if args.backend == "ollama":
         try:
             client.ensure_model()
         except RuntimeError as e:
             logger.warning(str(e))
 
-    # Generate
     try:
         raw_code, issues = client.generate_contract(system_prompt, user_prompt, validate_pass=True)
     except RuntimeError as e:
@@ -167,7 +174,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     logger.info(f"  Raw output : {len(raw_code):,} characters")
 
-    # ── Optional second-pass validation via LLM ───────────────────────────
+    # ── Optional second-pass LLM validation ──────────────────────────────
     if args.validate_llm and issues:
         logger.info("  Running LLM self-validation pass...")
         val_prompt = build_validation_prompt(raw_code, doc)
@@ -177,27 +184,63 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 val_prompt,
                 validate_pass=True,
             )
-            if len(reviewed) > 200:   # sanity: LLM returned actual code
+            if len(reviewed) > 200:
                 raw_code = reviewed
-                issues = issues2
+                issues   = issues2
                 logger.info("  LLM validation pass complete.")
         except Exception as e:
             logger.warning(f"  Validation pass failed (non-fatal): {e}")
 
-    # ── Step 5: Post-process & save ───────────────────────────────────────
+    # ── Step 5: Post-process ──────────────────────────────────────────────
     logger.info("━" * 60)
-    logger.info("STEP 4/4  Post-processing & saving output...")
+    logger.info("STEP 4/5  Post-processing & applying Solidity fixes...")
 
     final_code = apply_all_fixes(raw_code, doc)
 
-    # Re-validate after fixes
+    # Re-run structural checks after deterministic fixes
     ok, final_issues = validate_solidity_output(final_code)
 
     elapsed = time.monotonic() - t0
 
+    # ── Step 6: Legal & compliance validation ─────────────────────────────
+    validation_report = None
+    if not args.skip_validation:
+        logger.info("━" * 60)
+        logger.info("STEP 5/5  Running smart contract legal validation suite...")
+        validation_report = run_contract_validation(final_code, doc)
+
+        if validation_report:
+            logger.info(f"  Overall accuracy   : {validation_report.accuracy_overall:.1f}%")
+            logger.info(f"  Solidity standards : {validation_report.accuracy_solidity:.1f}%")
+            logger.info(f"  Security           : {validation_report.accuracy_security:.1f}%")
+            logger.info(f"  Legal faithfulness : {validation_report.accuracy_legal:.1f}%")
+            logger.info(f"  Clause coverage    : {validation_report.accuracy_coverage:.1f}%")
+            logger.info(f"  Tests              : {validation_report.passed}/{validation_report.total_tests} passed")
+
+            if validation_report.critical_failures:
+                logger.warning(
+                    f"  ⚠  {validation_report.critical_failures} CRITICAL validation failure(s)!"
+                )
+                for r in validation_report.results:
+                    if not r.passed and r.severity == "critical":
+                        logger.warning(f"     • [{r.test_id}] {r.description}: {r.detail}")
+            else:
+                logger.info("  ✓ No critical validation failures.")
+        else:
+            logger.warning("  Validator not available — skipping.")
+    else:
+        logger.info("STEP 5/5  Legal validation skipped (--skip-validation).")
+
+    # ── Save outputs ──────────────────────────────────────────────────────
     sol_path = save_solidity(final_code, doc, output_dir)
-    rep_path = save_report(doc, sol_path, final_issues, output_dir, elapsed)
-    sum_path = save_human_readable_summary(doc, sol_path, output_dir)
+    rep_path = save_report(
+        doc, sol_path, final_issues, output_dir, elapsed,
+        validation_report=validation_report,
+    )
+    sum_path = save_human_readable_summary(
+        doc, sol_path, output_dir,
+        validation_report=validation_report,
+    )
 
     # ── Summary ───────────────────────────────────────────────────────────
     logger.info("━" * 60)
@@ -208,22 +251,29 @@ def run_pipeline(args: argparse.Namespace) -> int:
     logger.info(f"  Elapsed       : {elapsed:.1f}s")
 
     if final_issues:
-        logger.warning(f"  ⚠  Validation issues ({len(final_issues)}):")
+        logger.warning(f"  Structural issues ({len(final_issues)}):")
         for issue in final_issues:
             logger.warning(f"     • {issue}")
     else:
-        logger.info("  ✓  All structural validations passed.")
+        logger.info("  All structural validations passed.")
+
+    if validation_report:
+        logger.info(f"  Accuracy score : {validation_report.accuracy_overall:.1f}%")
 
     logger.info("━" * 60)
 
-    # Print the Solidity code to stdout if requested
     if args.print_code:
         print("\n" + "═" * 70)
         print("GENERATED SOLIDITY CONTRACT:")
         print("═" * 70)
         print(final_code)
 
-    return 0 if ok else 2   # exit 2 = generated but with warnings
+    # Exit code reflects worst issue found
+    if validation_report and validation_report.critical_failures > 0:
+        return 3   # legal/compliance critical failures
+    if not ok:
+        return 2   # structural warnings only
+    return 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -237,64 +287,28 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-
-    p.add_argument(
-        "input",
-        help="Path to the eContract file (.docx or .txt)",
-    )
-    p.add_argument(
-        "-o", "--output",
-        default="./output",
-        help="Output directory (default: ./output)",
-    )
-    p.add_argument(
-        "-m", "--model",
-        default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),
-        help="LLM model name (default: qwen2.5-coder:7b)",
-    )
-    p.add_argument(
-        "--backend",
-        choices=["ollama", "openai"],
-        default=os.environ.get("LLM_BACKEND", "ollama"),
-        help="LLM backend (default: ollama)",
-    )
-    p.add_argument(
-        "--ollama-url",
-        default=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
-        help="Ollama base URL (default: http://localhost:11434)",
-    )
-    p.add_argument(
-        "--temperature",
-        type=float,
-        default=0.1,
-        help="LLM temperature 0–1 (default: 0.1 for accuracy)",
-    )
-    p.add_argument(
-        "--validate-llm",
-        action="store_true",
-        help="Run a second LLM pass to self-validate the generated contract",
-    )
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Extract & build prompt only, do not call LLM",
-    )
-    p.add_argument(
-        "--print-code",
-        action="store_true",
-        help="Print the generated Solidity to stdout",
-    )
-    p.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose/debug logging",
-    )
+    p.add_argument("input",  help="Path to the eContract file (.docx or .txt)")
+    p.add_argument("-o", "--output", default="./output",
+                   help="Output directory (default: ./output)")
+    p.add_argument("-m", "--model",
+                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),
+                   help="LLM model name")
+    p.add_argument("--backend", choices=["ollama", "openai"],
+                   default=os.environ.get("LLM_BACKEND", "ollama"))
+    p.add_argument("--ollama-url",
+                   default=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+    p.add_argument("--temperature", type=float, default=0.1)
+    p.add_argument("--validate-llm", action="store_true",
+                   help="Run a second LLM self-validation pass")
+    p.add_argument("--skip-validation", action="store_true",
+                   help="Skip the legal/compliance test suite")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Extract & build prompt only, do not call LLM")
+    p.add_argument("--print-code", action="store_true",
+                   help="Print the generated Solidity to stdout")
+    p.add_argument("-v", "--verbose", action="store_true")
     return p
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Entry point
-# ═══════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
     parser = build_parser()

@@ -13,6 +13,8 @@
 #
 #  Examples:
 #    ./econtract.sh my_contract.docx
+
+
 #    ./econtract.sh my_contract.docx my_nda.txt service.docx
 #    ./econtract.sh *.docx *.txt --validate-llm
 #    ./econtract.sh contract.docx --model qwen2.5-coder:14b --print-code
@@ -36,7 +38,7 @@ divider() { echo -e "${CYN}━━━━━━━━━━━━━━━━━�
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/econtract_converter.py"
 RESULTS_ROOT="${SCRIPT_DIR}/Results"
-LLM_MODEL="${LLM_MODEL:-qwen2.5-coder:7b}"
+LLM_MODEL="${LLM_MODEL:-qwen2.5-coder:14b}"
 OLLAMA_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
 LLM_BACKEND="${LLM_BACKEND:-ollama}"
 TEMPERATURE="0.1"
@@ -61,7 +63,7 @@ ${CYN}Output structure (per file):${RST}
       └── results.json          ← Conversion report + validation
 
 ${CYN}Options:${RST}
-  -m, --model MODEL         LLM model (default: qwen2.5-coder:7b)
+  -m, --model MODEL         LLM model (default: qwen2.5-coder:14b)
   --backend BACKEND         ollama|openai (default: ollama)
   --ollama-url URL          Ollama server URL
   --temperature N           LLM temperature 0–1 (default: 0.1)

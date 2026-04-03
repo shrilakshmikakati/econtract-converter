@@ -1,0 +1,17 @@
+{
+  "conversion_timestamp": "2026-04-03T07:15:24Z",
+  "source_file": "contract_10.txt",
+  "contract_title": "Contract 10",
+  "model": "qwen2.5-coder:7b",
+  "backend": "ollama",
+  "elapsed_seconds": 0,
+  "parties": [],
+  "clauses_extracted": 0,
+  "validation_issues": [],
+  "validation_passed": false,
+  "result_directory": "/mnt/d/TRUSTINN/econtract-converter/Results/contract_10",
+  "input_econtract_file": "Results/contract_10/contract_10.txt",
+  "smart_contract_file": null,
+  "exit_code": 2,
+  "status": "warnings"
+}
