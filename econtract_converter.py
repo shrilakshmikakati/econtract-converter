@@ -66,7 +66,7 @@ logger = logging.getLogger("econtract")
 
 BANNER = r"""
 ╔══════════════════════════════════════════════════════════════╗
-║      eContract → Smart Contract Converter  v2.0              ║
+║      eContract → Smart Contract Converter                    ║
 ║      Solidity 0.8.16  |  Local LLM (Ollama)                  ║
 ╚══════════════════════════════════════════════════════════════╝
 """
