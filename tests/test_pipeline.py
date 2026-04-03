@@ -1,30 +1,102 @@
 #!/usr/bin/env python3
 """
 test_pipeline.py — Unit + integration tests for the eContract converter.
-Runs WITHOUT an LLM (uses mock or dry-run mode).
+Runs WITHOUT an LLM (uses mock / dry-run mode).
 
 Usage:
-    python tests/test_pipeline.py
+    python test_pipeline.py                  # from project root
+    ./econtract.sh --run-tests               # via shell wrapper
 """
 
 import sys
-import json
-import time
 import unittest
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# ── Path resolution ────────────────────────────────────────────────────────
+# Support running from project root, a tests/ sub-folder, or anywhere.
+# We look for extractor.py both in the same dir as this script AND in a
+# sibling src/ directory, so the suite works in both layouts.
+_HERE = Path(__file__).parent.resolve()
+for _candidate in (_HERE, _HERE / "src", _HERE.parent, _HERE.parent / "src"):
+    if (_candidate / "extractor.py").exists():
+        sys.path.insert(0, str(_candidate))
+        break
 
-from extractor import extract_contract, _clean_text, _split_into_clauses, ContractDocument
+from extractor import extract_contract, _clean_text, ContractDocument
 from prompt_builder import build_user_prompt, get_system_prompt
 from postprocessor import apply_all_fixes, _fix_pragma, _fix_spdx, _fix_safemath, _slugify
 
+# ── Locate sample contract ─────────────────────────────────────────────────
+# Search in: tests/, project root, and a fixtures/ sibling.
+_SEARCH = [
+    _HERE / "sample_service_agreement.txt",
+    _HERE / "tests" / "sample_service_agreement.txt",
+    _HERE.parent / "tests" / "sample_service_agreement.txt",
+    _HERE / "fixtures" / "sample_service_agreement.txt",
+]
+SAMPLE_TXT = next((p for p in _SEARCH if p.exists()), _HERE / "sample_service_agreement.txt")
 
-SAMPLE_TXT = Path(__file__).parent / "sample_service_agreement.txt"
+# ── Embedded sample (used when the file is absent) ────────────────────────
+_SAMPLE_CONTENT = """\
+SERVICE AGREEMENT
 
+This Service Agreement ("Agreement") is entered into as of January 15, 2024
+("Effective Date") by and between:
+
+TechCorp Solutions LLC ("Service Provider")
+Ethereum Address: 0xAbCdEf1234567890AbCdEf1234567890AbCdEf12
+
+and
+
+ClientCo Inc. ("Client")
+Ethereum Address: 0x1234567890AbCdEf1234567890AbCdEf12345678
+
+Arbitrator: 0xDeAdBeEf1234567890DeAdBeEf1234567890DeAd
+
+1. Services
+The Service Provider shall deliver software development services as specified
+in Exhibit A. All deliverables must be approved by the Client within 14 days.
+
+2. Payment
+The Client shall pay 10 ETH upon execution and 5 ETH upon delivery of each
+milestone. Late payments incur a 0.5 ETH penalty per 7 days overdue.
+
+3. Term and Termination
+This Agreement commences on the Effective Date and expires on December 31, 2024.
+Either party may terminate with 30 days written notice.
+
+4. Penalties and Liquidated Damages
+Failure to deliver by the agreed deadline results in a 1 ETH daily penalty,
+up to a maximum of 10 ETH.
+
+5. Dispute Resolution
+All disputes shall be resolved by binding arbitration governed by the Laws of
+Delaware. The arbitrator's decision is final and binding on all parties.
+
+6. Confidentiality
+Both parties agree to maintain strict confidentiality of all proprietary
+information for 2 years following termination.
+
+7. Intellectual Property
+All work product created under this Agreement is owned by the Client upon
+full payment. Service Provider retains no IP rights after handover.
+"""
+
+
+def _ensure_sample() -> Path:
+    """Create the sample file on disk if it does not already exist."""
+    if not SAMPLE_TXT.exists():
+        SAMPLE_TXT.parent.mkdir(parents=True, exist_ok=True)
+        SAMPLE_TXT.write_text(_SAMPLE_CONTENT, encoding="utf-8")
+    return SAMPLE_TXT
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  Test classes
+# ══════════════════════════════════════════════════════════════════════════
 
 class TestTextCleaning(unittest.TestCase):
+
     def test_noise_removal(self):
         raw = "CONFIDENTIAL - DO NOT DISTRIBUTE\nReal content here\nPage 1 of 3"
         clean = _clean_text(raw)
@@ -43,18 +115,24 @@ class TestTextCleaning(unittest.TestCase):
         clean = _clean_text(raw)
         self.assertNotIn("\n\n\n", clean)
 
+    def test_bom_stripped(self):
+        raw = "\ufeffSome content"
+        clean = _clean_text(raw)
+        self.assertFalse(clean.startswith("\ufeff"))
+
 
 class TestExtraction(unittest.TestCase):
-    def setUp(self):
-        if not SAMPLE_TXT.exists():
-            self.skipTest("Sample file not found")
-        self.doc = extract_contract(SAMPLE_TXT)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sample = _ensure_sample()
+        cls.doc = extract_contract(cls.sample)
 
     def test_returns_contract_document(self):
         self.assertIsInstance(self.doc, ContractDocument)
 
     def test_title_extracted(self):
-        self.assertTrue(len(self.doc.title) > 3)
+        self.assertGreater(len(self.doc.title), 3)
         print(f"\n  Title: {self.doc.title}")
 
     def test_parties_extracted(self):
@@ -70,7 +148,8 @@ class TestExtraction(unittest.TestCase):
 
     def test_eth_addresses_found(self):
         addrs = self.doc.metadata.get("eth_addresses_found", [])
-        self.assertGreaterEqual(len(addrs), 1)
+        self.assertGreaterEqual(len(addrs), 1,
+            "Expected at least one 0x address in sample contract")
         print(f"\n  ETH addresses: {addrs}")
 
     def test_payment_clause_amount(self):
@@ -79,9 +158,9 @@ class TestExtraction(unittest.TestCase):
         for c in payment_clauses:
             print(f"    - {c.heading}: amount={c.amount_eth}, days={c.deadline_days}")
 
-    def test_metadata(self):
-        self.assertIn("source_file", self.doc.metadata)
-        self.assertIn("clause_count", self.doc.metadata)
+    def test_metadata_keys(self):
+        for key in ("source_file", "clause_count", "char_count"):
+            self.assertIn(key, self.doc.metadata)
         self.assertGreater(self.doc.metadata["char_count"], 100)
 
     def test_unsupported_extension(self):
@@ -94,10 +173,10 @@ class TestExtraction(unittest.TestCase):
 
 
 class TestPromptBuilder(unittest.TestCase):
-    def setUp(self):
-        if not SAMPLE_TXT.exists():
-            self.skipTest("Sample file not found")
-        self.doc = extract_contract(SAMPLE_TXT)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = extract_contract(_ensure_sample())
 
     def test_system_prompt_contains_solidity_rules(self):
         sp = get_system_prompt()
@@ -123,13 +202,14 @@ class TestPromptBuilder(unittest.TestCase):
         up = build_user_prompt(self.doc)
         self.assertGreater(len(up), 200)
 
+    def test_prompt_contains_instructions_header(self):
+        up = build_user_prompt(self.doc)
+        self.assertIn("INSTRUCTIONS", up)
+
 
 class TestPostprocessor(unittest.TestCase):
-    SAMPLE_SOL = """
-contract TestContract {
-    constructor() {}
-}
-"""
+
+    SAMPLE_SOL = "\ncontract TestContract {\n    constructor() {}\n}\n"
 
     def test_fix_spdx(self):
         fixed = _fix_spdx(self.SAMPLE_SOL)
@@ -146,32 +226,122 @@ contract TestContract {
         fixed = _fix_safemath(code)
         self.assertNotIn("SafeMath", fixed)
 
-    def test_slugify(self):
+    def test_slugify_basic(self):
         self.assertEqual(_slugify("Service Agreement Contract"), "service_agreement_contract")
-        self.assertIn("nda", _slugify("NDA & IP Rights!"))
-        self.assertIn("ip", _slugify("NDA & IP Rights!"))
 
-    def test_full_fixes(self):
-        if not SAMPLE_TXT.exists():
-            self.skipTest("Sample file not found")
-        doc = extract_contract(SAMPLE_TXT)
+    def test_slugify_special_chars(self):
+        slug = _slugify("NDA & IP Rights!")
+        self.assertIn("nda", slug)
+        self.assertIn("ip", slug)
+
+    def test_full_fixes_pragma_and_spdx(self):
+        doc = extract_contract(_ensure_sample())
         raw = "pragma solidity ^0.7.6;\ncontract X { constructor() payable {} }\n"
         fixed = apply_all_fixes(raw, doc)
         self.assertIn("0.8.16", fixed)
         self.assertIn("SPDX-License-Identifier", fixed)
+
+    def test_full_fixes_adds_receive(self):
+        doc = extract_contract(_ensure_sample())
+        raw = "pragma solidity ^0.7.6;\ncontract X { constructor() payable {} }\n"
+        fixed = apply_all_fixes(raw, doc)
         self.assertIn("receive()", fixed)
+
+    def test_full_fixes_adds_generated_comment(self):
+        doc = extract_contract(_ensure_sample())
+        raw = "pragma solidity ^0.7.6;\ncontract X { constructor() payable {} }\n"
+        fixed = apply_all_fixes(raw, doc)
         self.assertIn("Generated:", fixed)
+
+
+class TestValidator(unittest.TestCase):
+    """Test test_contract_validator.py helpers if importable."""
+
+    def setUp(self):
+        try:
+            from test_contract_validator import (
+                run_all_validations,
+                check_solidity_standards,
+                ValidationReport,
+            )
+            self.run_all  = run_all_validations
+            self.check_sol = check_solidity_standards
+            self.Report    = ValidationReport
+        except ImportError:
+            self.skipTest("test_contract_validator.py not importable")
+
+    def test_spdx_check_passes(self):
+        code = "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.16;\ncontract A {}"
+        results = self.check_sol(code)
+        spdx = next(r for r in results if r.test_id == "SOL-001")
+        self.assertTrue(spdx.passed)
+
+    def test_spdx_check_fails_without_spdx(self):
+        code = "pragma solidity ^0.8.16;\ncontract A {}"
+        results = self.check_sol(code)
+        spdx = next(r for r in results if r.test_id == "SOL-001")
+        self.assertFalse(spdx.passed)
+
+    def test_selfdestruct_flagged(self):
+        code = (
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.16;\n"
+            "contract A { function kill() public { selfdestruct(payable(msg.sender)); } }"
+        )
+        results = self.check_sol(code)
+        sd = next(r for r in results if r.test_id == "SOL-010")
+        self.assertFalse(sd.passed)
+
+    def test_full_validation_returns_report(self):
+        doc = extract_contract(_ensure_sample())
+        code = (
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.16;\n"
+            "contract ServiceAgreement {\n"
+            "    bool private _locked;\n"
+            "    address public arbitrator;\n"
+            "    enum State { Created, Active, Completed }\n"
+            "    State private _state;\n"
+            "    event PaymentReceived(address indexed sender, uint256 amount);\n"
+            "    event DisputeRaised(address indexed party, string reason);\n"
+            "    event ContractTerminated(address indexed by);\n"
+            "    error Unauthorized();\n"
+            "    error AlreadyLocked();\n"
+            "    modifier noReentrant() {\n"
+            "        if (_locked) revert AlreadyLocked();\n"
+            "        _locked = true; _; _locked = false;\n"
+            "    }\n"
+            "    modifier onlyParties() { _; }\n"
+            "    constructor(address _arbitrator) {\n"
+            "        arbitrator = _arbitrator;\n"
+            "    }\n"
+            "    /// @notice Pay a milestone\n"
+            "    /// @notice Terminate the contract\n"
+            "    function pay() external payable noReentrant {\n"
+            "        require(msg.value > 0);\n"
+            "        emit PaymentReceived(msg.sender, msg.value);\n"
+            "    }\n"
+            "    function terminate() external { emit ContractTerminated(msg.sender); }\n"
+            "    function raiseDispute(string calldata reason) external {\n"
+            "        emit DisputeRaised(msg.sender, reason);\n"
+            "    }\n"
+            "    function getContractState() external view returns (State) { return _state; }\n"
+            "    receive() external payable {}\n"
+            "}\n"
+        )
+        report = self.run_all(code, doc)
+        self.assertIsInstance(report, self.Report)
+        self.assertGreater(report.total_tests, 0)
+        self.assertGreaterEqual(report.accuracy_overall, 0.0)
+        print(f"\n  Validator: {report.passed}/{report.total_tests} passed "
+              f"({report.accuracy_overall:.1f}% overall)")
 
 
 class TestEndToEnd(unittest.TestCase):
     """Dry-run integration test — no LLM required."""
 
     def test_dry_run_pipeline(self):
-        """Run the full pipeline in dry-run mode and verify the prompt is built."""
-        if not SAMPLE_TXT.exists():
-            self.skipTest("Sample file not found")
-
-        doc = extract_contract(SAMPLE_TXT)
+        doc    = extract_contract(_ensure_sample())
         system = get_system_prompt()
         user   = build_user_prompt(doc)
 
@@ -184,13 +354,29 @@ class TestEndToEnd(unittest.TestCase):
         print(f"  Clauses extracted    : {len(doc.clauses)}")
         print(f"  Parties extracted    : {len(doc.parties)}")
 
+    def test_full_extract_and_fix_cycle(self):
+        doc   = extract_contract(_ensure_sample())
+        raw   = "pragma solidity ^0.6.0;\ncontract T { constructor() {} }"
+        fixed = apply_all_fixes(raw, doc)
+        self.assertIn("0.8.16", fixed)
+        self.assertIn("SPDX", fixed)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  Entry point
+# ══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     print("=" * 60)
     print("  eContract Converter — Test Suite")
     print("=" * 60)
-    loader  = unittest.TestLoader()
-    suite   = loader.loadTestsFromModule(sys.modules[__name__])
-    runner  = unittest.TextTestRunner(verbosity=2)
-    result  = runner.run(suite)
+    # Auto-create the sample file so extraction tests always have input
+    p = _ensure_sample()
+    print(f"  Sample contract : {p}")
+    print("=" * 60)
+
+    loader = unittest.TestLoader()
+    suite  = loader.loadTestsFromModule(sys.modules[__name__])
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)

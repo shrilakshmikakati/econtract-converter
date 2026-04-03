@@ -1,0 +1,30 @@
+{
+  "conversion_timestamp": "2026-04-03T10:49:25Z",
+  "source_file": "contract_100.txt",
+  "contract_title": "Contract 100",
+  "model": "qwen2.5-coder:14b",
+  "backend": "ollama",
+  "elapsed_seconds": 0,
+  "parties": [],
+  "clauses_extracted": 0,
+  "validation_issues": [],
+  "validation_passed": false,
+  "result_directory": "/mnt/d/TRUSTINN/econtract-converter/Results/contract_100",
+  "input_econtract_file": "Results/contract_100/contract_100.txt",
+  "smart_contract_file": null,
+  "summary_file": null,
+  "exit_code": 1,
+  "status": "failed",
+  "assertion_injection": {
+    "enabled": true,
+    "injected_file": null,
+    "assertion_report": null,
+    "assertions_added": 0,
+    "injector_source": "assertionInjector1.cpp",
+    "note": "Each if/require/while/for condition C produces assert(!(C)) and assert(!(!(C))) for mutation and formal-verification testing."
+  },
+  "standalone_validator": {
+    "enabled": true,
+    "note": "validator_detail.json not produced"
+  }
+}
