@@ -1,0 +1,6 @@
+Error: Function cannot be declared as view because this expression (potentially) modifies the state.
+  --> Results/contract_55-bmc/contract_55.sol:42:14:
+   |
+42 |         emit PenaltyCalculated(penaltyAmount);
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

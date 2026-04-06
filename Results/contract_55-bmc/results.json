@@ -1,45 +1,40 @@
 {
-  "conversion_timestamp": "2026-04-06T10:06:09Z",
-  "elapsed_seconds": 1116.64,
-  "source_file": "/mnt/d/TRUSTINN/econtract-converter/contract_82.txt",
-  "output_file": "/mnt/d/TRUSTINN/econtract-converter/Results/contract_82/agreement_and_plan_of_merger.sol",
+  "conversion_timestamp": "2026-04-06T11:26:25Z",
+  "elapsed_seconds": 255.23,
+  "source_file": "/mnt/d/TRUSTINN/econtract-converter/contract_55.txt",
+  "output_file": "/mnt/d/TRUSTINN/econtract-converter/Results/contract_55/contract_55.sol",
   "contract_title": "Agreement And Plan Of Merger",
   "parties": [
     {
-      "role": "Agreement",
-      "name": "REEMENT AND PLAN OF MERGER\n\nThis AGREEMENT AND PLAN OF MERGER",
-      "wallet": null
-    },
-    {
       "role": "Parent",
-      "name": "Republic of Italy",
+      "name": "Delaware corporation",
       "wallet": null
     },
     {
-      "role": "Merger Subsidiary",
-      "name": "Parent",
+      "role": "Purchaser",
+      "name": "Delaware corporation and a wholly owned subsidiary of Parent",
       "wallet": null
     }
   ],
-  "clauses_extracted": 53,
-  "effective_date": "APRIL 11, 2021",
-  "expiry_date": null,
-  "governing_law": "AND IN ACCORDANCE WITH THE LAWS OF THE STATE OF DELAWARE",
-  "char_count": 288731,
+  "clauses_extracted": 48,
+  "effective_date": "March 4, 2021",
+  "expiry_date": "December 4, 2021",
+  "governing_law": "the internal affairs doctrine",
+  "char_count": 255093,
   "validation_issues": [],
   "validation_passed": false,
   "accuracy": {
-    "overall": 78.2,
-    "solidity": 87.1,
-    "security": 94.4,
-    "legal": 100.0,
-    "coverage": 54.8
+    "overall": 80.0,
+    "solidity": 89.7,
+    "security": 61.5,
+    "legal": 71.4,
+    "coverage": 80.6
   },
   "test_suite": {
-    "total_tests": 46,
-    "passed": 34,
-    "failed": 12,
-    "critical_failures": 1,
+    "total_tests": 43,
+    "passed": 33,
+    "failed": 10,
+    "critical_failures": 2,
     "results": [
       {
         "test_id": "SOL-001",
@@ -87,7 +82,7 @@
         "description": "Events are emitted (emit statements)",
         "passed": true,
         "severity": "major",
-        "detail": "Found 4 emit(s)"
+        "detail": "Found 3 emit(s)"
       },
       {
         "test_id": "SOL-007",
@@ -95,7 +90,7 @@
         "description": "Uses custom errors instead of require() strings",
         "passed": false,
         "severity": "major",
-        "detail": "custom errors=4, require-strings=2"
+        "detail": "custom errors=0, require-strings=3"
       },
       {
         "test_id": "SOL-008",
@@ -135,7 +130,7 @@
         "description": "Balanced braces (code not truncated)",
         "passed": true,
         "severity": "critical",
-        "detail": "open=10 close=10"
+        "detail": "open=9 close=9"
       },
       {
         "test_id": "SOL-013",
@@ -143,21 +138,13 @@
         "description": "NatSpec (@notice) present on functions",
         "passed": false,
         "severity": "minor",
-        "detail": "Found 1 @notice comments"
-      },
-      {
-        "test_id": "SOL-014",
-        "category": "solidity",
-        "description": "receive() function present (contract is payable)",
-        "passed": true,
-        "severity": "major",
-        "detail": ""
+        "detail": "Found 0 @notice comments"
       },
       {
         "test_id": "SOL-015",
         "category": "solidity",
         "description": "Enum-based state machine defined",
-        "passed": false,
+        "passed": true,
         "severity": "minor",
         "detail": "State machine enums add auditability"
       },
@@ -165,7 +152,7 @@
         "test_id": "SEC-001",
         "category": "security",
         "description": "Reentrancy guard bool flag (_locked) declared",
-        "passed": true,
+        "passed": false,
         "severity": "critical",
         "detail": ""
       },
@@ -178,28 +165,12 @@
         "detail": ""
       },
       {
-        "test_id": "SEC-003",
-        "category": "security",
-        "description": "noReentrant applied to payable functions",
-        "passed": true,
-        "severity": "critical",
-        "detail": "Payable functions: ['pay']"
-      },
-      {
-        "test_id": "SEC-004",
-        "category": "security",
-        "description": "msg.value validated in payable functions",
-        "passed": true,
-        "severity": "major",
-        "detail": ""
-      },
-      {
         "test_id": "SEC-005",
         "category": "security",
         "description": "Access control modifiers present",
-        "passed": true,
+        "passed": false,
         "severity": "major",
-        "detail": "Found 1 onlyX modifiers"
+        "detail": "Found 0 onlyX modifiers"
       },
       {
         "test_id": "SEC-006",
@@ -229,7 +200,7 @@
         "test_id": "SEC-009",
         "category": "security",
         "description": "Arbitrator address declared as state variable",
-        "passed": false,
+        "passed": true,
         "severity": "minor",
         "detail": ""
       },
@@ -237,7 +208,7 @@
         "test_id": "COV-001",
         "category": "coverage",
         "description": "Payment logic encoded (payable function or ETH transfer)",
-        "passed": true,
+        "passed": false,
         "severity": "critical",
         "detail": ""
       },
@@ -261,7 +232,7 @@
         "test_id": "COV-020",
         "category": "coverage",
         "description": "Expiry/deadline stored as block.timestamp or uint deadline",
-        "passed": true,
+        "passed": false,
         "severity": "major",
         "detail": ""
       },
@@ -277,7 +248,7 @@
         "test_id": "COV-030",
         "category": "coverage",
         "description": "State machine transitions for obligations",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -285,7 +256,7 @@
         "test_id": "COV-031",
         "category": "coverage",
         "description": "Deliverable/milestone acknowledgement function",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -293,7 +264,7 @@
         "test_id": "COV-040",
         "category": "coverage",
         "description": "Dispute function present",
-        "passed": false,
+        "passed": true,
         "severity": "critical",
         "detail": ""
       },
@@ -301,7 +272,7 @@
         "test_id": "COV-041",
         "category": "coverage",
         "description": "Arbitrator address state variable",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -309,7 +280,7 @@
         "test_id": "COV-042",
         "category": "coverage",
         "description": "Dispute event emitted",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -324,10 +295,10 @@
       {
         "test_id": "LEG-020",
         "category": "legal",
-        "description": "Governing law (AND IN ACCORDANCE WITH THE LAWS OF THE STATE OF DELAWARE) acknowledged",
-        "passed": true,
+        "description": "Governing law (the internal affairs doctrine) acknowledged",
+        "passed": false,
         "severity": "info",
-        "detail": "Checked keywords: ['accordance', 'with', 'laws', 'state', 'delaware']"
+        "detail": "Checked keywords: ['internal', 'affairs', 'doctrine']"
       },
       {
         "test_id": "LEG-030",
@@ -335,7 +306,7 @@
         "description": "Effective/start date encoded (as timestamp or comment)",
         "passed": false,
         "severity": "info",
-        "detail": "Effective date: APRIL 11, 2021"
+        "detail": "Effective date: March 4, 2021"
       },
       {
         "test_id": "LEG-070",
@@ -357,7 +328,7 @@
         "test_id": "LEG-090",
         "category": "legal",
         "description": "Contract operates in ETH (payable, not only ERC-20)",
-        "passed": true,
+        "passed": false,
         "severity": "major",
         "detail": ""
       },
@@ -372,44 +343,44 @@
       {
         "test_id": "CLS-PAYMEN",
         "category": "coverage",
-        "description": "Clause 'DATED AS OF' [payment] encoded on-chain",
+        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [payment] encoded on-chain",
         "passed": true,
         "severity": "major",
-        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay']"
+        "detail": "Keywords matched 1/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay']"
       },
       {
         "test_id": "CLS-EXPIRY",
         "category": "coverage",
         "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [expiry] encoded on-chain",
-        "passed": true,
-        "severity": "minor",
-        "detail": "Keywords matched 2/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
-      },
-      {
-        "test_id": "CLS-OBLIGA",
-        "category": "coverage",
-        "description": "Clause 'AGREEMENT' [obligation] encoded on-chain",
         "passed": false,
         "severity": "minor",
-        "detail": "Keywords matched 0/3: ['_state\\\\s*=', 'Completed|Active|Created', 'deliver|Deliver']"
-      },
-      {
-        "test_id": "CLS-PENALT",
-        "category": "coverage",
-        "description": "Clause 'Authorization; No Conflict. (a)    The execution, delivery and performance by the Company of this Agreement and the consummation by the Company of the Transactions are within the Company's corporate powers and, subject to the adoption of the Agreement by the holders of a majority of the voting power of the outstanding shares of Company Common Stock entitled to vote on such matter at a stockholders' meeting duly called and held for such purpose (the \"Company Stockholder Approval\"), have been duly authorized by all necessary corporate action on the part of the Company. The Company has duly executed and delivered this Agreement and, assuming due authorization, execution and delivery by Parent and Merger Subsidiary, this Agreement constitutes a legal, valid and binding agreement of the Company enforceable against the Company in accordance with its terms (subject to applicable bankruptcy, insolvency, fraudulent transfer, reorganization, moratorium and other laws affecting creditors' rights generally and general principles of equity).' [penalty] encoded on-chain",
-        "passed": true,
-        "severity": "major",
-        "detail": "Keywords matched 1/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei']"
+        "detail": "Keywords matched 0/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
       },
       {
         "test_id": "CLS-DISPUT",
         "category": "coverage",
-        "description": "Clause 'Compliance with Laws; Permits. (a)    Neither the Company nor the Company Subsidiaries is, or has been since January 1, 2019, in violation of any Law or Order applicable to the Company or the Company Subsidiaries or by which any of their respective properties or businesses are bound or any regulation issued under any of the foregoing or has been notified in writing by any Governmental Authority of any violation by the Company of, or any investigation with respect to, any such Law or Order, except for any such violation that would not, or would not reasonably be expected to individually or in the aggregate, have a Company Material Adverse Effect.' [dispute] encoded on-chain",
-        "passed": false,
+        "description": "Clause 'Due Organization; Subsidiaries, Etc.' [dispute] encoded on-chain",
+        "passed": true,
         "severity": "major",
-        "detail": "Keywords matched 0/3: ['disput|Disput', 'arbitrat|Arbitrat', 'escrow|Escrow']"
+        "detail": "Keywords matched 2/3: ['disput|Disput', 'arbitrat|Arbitrat', 'escrow|Escrow']"
+      },
+      {
+        "test_id": "CLS-PENALT",
+        "category": "coverage",
+        "description": "Clause 'Non-Contravention; Consents. Assuming compliance with the applicable provisions of the DGCL, the HSR Act and the rules and regulations of Nasdaq, the execution and delivery of this Agreement by the Company and the consummation by the Company of the Transactions will not: (a) cause a violation of any of the provisions of the certificate of incorporation or bylaws of the Company; (b) cause a violation by the Company of any Law applicable to the Company or to which the Company is subject; or (c) conflict with, result in breach of, or constitute a default under, any Material Contract, except in the case of clauses (b) and (c), for   -21-' [penalty] encoded on-chain",
+        "passed": true,
+        "severity": "major",
+        "detail": "Keywords matched 2/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei']"
+      },
+      {
+        "test_id": "CLS-OBLIGA",
+        "category": "coverage",
+        "description": "Clause 'SEC Filings; Financial Statements.' [obligation] encoded on-chain",
+        "passed": true,
+        "severity": "minor",
+        "detail": "Keywords matched 2/3: ['_state\\\\s*=', 'Completed|Active|Created', 'deliver|Deliver']"
       }
     ]
   },
-  "test_summary": "Validation: 34/46 passed | Accuracy: 78.2% | Critical failures: 1 | Critical: COV-040"
+  "test_summary": "Validation: 33/43 passed | Accuracy: 80.0% | Critical failures: 2 | Critical: SEC-001, COV-001"
 }
