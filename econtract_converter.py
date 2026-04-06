@@ -241,7 +241,7 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sol_path = save_solidity(final_code, doc, output_dir)
+    sol_path = save_solidity(final_code, doc, output_dir, filename=input_path.stem)
     rep_path = save_report(
         doc, sol_path, final_issues, output_dir, elapsed,
         validation_report=validation_report,
