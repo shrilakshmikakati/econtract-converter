@@ -47,7 +47,6 @@ chg_fle=$pwd
 
 
 mv ./Results/$name/* ./$RESULT_DIR/$name-$2
-
 rmdir ./Results/$name
 SOL_FILE=$(find "./$RESULT_DIR/$name-$2" -name "*.sol" | head -n 1)
  echo "$SOL_FILE"

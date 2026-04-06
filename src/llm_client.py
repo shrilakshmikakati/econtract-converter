@@ -1,11 +1,9 @@
-
 """
 llm_client.py — Communicates with a local Ollama instance (or any
 OpenAI-compatible endpoint) to generate Solidity smart contracts.
 
 Supported backends:
-  • Ollama  (default) — http://localhost:11434
-  • OpenAI-compatible  — set OPENAI_BASE_URL env variable
+  • Ollama  (default) — http://127.0.0.1:11434
 """
 
 from __future__ import annotations
@@ -21,18 +19,34 @@ from typing import Optional
 import requests
 
 logger = logging.getLogger("econtract.llm")
+from pathlib import Path
+import subprocess
+
+import platform
+
+# Detect if running in WSL and adjust the path accordingly
+if "microsoft-standard" in platform.uname().release.lower():
+    OLLAMA_EXECUTABLE = Path("/mnt/d/ollama.exe")
+else:
+    OLLAMA_EXECUTABLE = Path("D:/ollama.exe")
+
+if "microsoft-standard" in platform.uname().release.lower():
+   DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+else:
+   DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Configuration
 # ═══════════════════════════════════════════════════════════════════════════
 
-DEFAULT_OLLAMA_URL   = "http://localhost:11434"
-DEFAULT_MODEL        = "qwen2.5:7b"
-REQUEST_TIMEOUT      = 300   # seconds — large contracts may take time
+DEFAULT_MODEL        = "qwen2.5-coder:7b"  
+REQUEST_TIMEOUT      = 560
 MAX_RETRIES          = 3
-RETRY_DELAY          = 5     # seconds between retries
+RETRY_DELAY          = 5      
 MAX_TOKENS           = 8192
+
 
 
 @dataclass
@@ -43,7 +57,7 @@ class LLMConfig:
     temperature: float = 0.1       # low temp → deterministic, accurate output
     top_p: float = 0.9
     max_tokens: int = MAX_TOKENS
-    backend: str = "ollama"        # "ollama" | "openai"
+    backend: str = "ollama"        
     api_key: Optional[str] = None
 
 
@@ -132,15 +146,26 @@ class OllamaClient:
 
     def pull_model(self) -> bool:
         """Pull the model if not available."""
+        if not OLLAMA_EXECUTABLE.exists():
+            logger.error(f"Ollama executable not found at {OLLAMA_EXECUTABLE}")
+            return False
+
         logger.info(f"Pulling model '{self.cfg.model}' from Ollama registry...")
         try:
-            resp = requests.post(
-                f"{self.cfg.base_url}/api/pull",
-                json={"name": self.cfg.model, "stream": False},
-                timeout=600,
-            )
-            return resp.status_code == 200
-        except requests.RequestException as e:
+            with subprocess.Popen(
+                [str(OLLAMA_EXECUTABLE), "pull", self.cfg.model],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            ) as proc:
+                if proc.stdout:
+                    for line in proc.stdout:
+                        # Print progress line by line
+                        print(f"\r  {line.strip()}", end="", flush=True)
+            print()  # Newline after pull is complete
+            return proc.returncode == 0
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.error(f"Model pull failed: {e}")
             return False
 
@@ -235,9 +260,14 @@ class LLMClient:
     """
 
     def __init__(self, cfg: Optional[LLMConfig] = None):
+        # FIX: Use LLMConfig() default for base_url so the WSL-aware logic in
+        # the dataclass field default is always respected. Only override if the
+        # env var is explicitly set — don't fall back to the module-level
+        # DEFAULT_OLLAMA_URL which duplicates (and can diverge from) the dataclass.
+        _wsl_aware_url = LLMConfig().base_url
         self.cfg = cfg or LLMConfig(
             model=os.environ.get("LLM_MODEL", DEFAULT_MODEL),
-            base_url=os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL),
+            base_url=os.environ.get("OLLAMA_BASE_URL", _wsl_aware_url),
             api_key=os.environ.get("OPENAI_API_KEY"),
             backend=os.environ.get("LLM_BACKEND", "ollama"),
         )
@@ -263,7 +293,8 @@ class LLMClient:
                 if not self._backend.pull_model():
                     raise RuntimeError(
                         f"Could not pull model '{self.cfg.model}'. "
-                        "Run manually: ollama pull qwen2.5-coder:7b"
+                        f"Run manually: ollama pull {self.cfg.model}\n"
+                        f"Tip: check available models with: ollama list"
                     )
 
     def generate_contract(
@@ -290,4 +321,3 @@ class LLMClient:
             return code, issues
 
         return code, []
-

@@ -4,6 +4,10 @@ econtract_converter.py — Production-ready CLI tool
 Converts electronic contracts (.docx / .txt) → Solidity 0.8.16 smart contracts
 using a local LLM (Ollama + qwen2.5-coder:7b by default).
 
+Results folder contains ONLY:
+  <contract_name>.sol   — the generated Solidity smart contract
+  results.json          — full metadata + accuracy scores + per-test results
+
 Usage:
     python econtract_converter.py <input_file> [options]
 
@@ -20,6 +24,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -34,7 +39,6 @@ from postprocessor import (
     apply_all_fixes,
     save_solidity,
     save_report,
-    save_human_readable_summary,
     run_contract_validation,
 )
 
@@ -43,14 +47,14 @@ from postprocessor import (
 #  Logging
 # ═══════════════════════════════════════════════════════════════════════════
 
-def setup_logging(verbose: bool, log_file: Path) -> None:
+def setup_logging(verbose: bool, log_file: Path = None) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     fmt   = "%(asctime)s [%(levelname)s] %(message)s"
     handlers = [logging.StreamHandler(sys.stdout)]
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
-    logging.basicConfig(level=level, format=fmt, handlers=handlers)
+    logging.basicConfig(level=level, format=fmt, handlers=handlers, force=True)
 
 
 logger = logging.getLogger("econtract")
@@ -75,6 +79,11 @@ BANNER = r"""
 def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     """
     Full conversion pipeline for a single file.
+
+    Results folder output (ONLY these two files):
+      Results/<stem>/<stem>.sol      — generated Solidity contract
+      Results/<stem>/results.json   — full report with accuracy + test results
+
     Exit codes:
       0 — success, all validations passed
       1 — hard failure (extraction / LLM error)
@@ -83,26 +92,22 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     """
     t0 = time.monotonic()
 
-    input_path  = input_file.resolve()
-    # Generate a unique output directory for each file based on its name
-    output_dir  = Path(args.output).resolve() / input_path.stem
-    log_file    = output_dir / "logs" / "conversion.log"
+    input_path = input_file.resolve()
+    output_dir = Path(args.output).resolve() / input_path.stem
 
     # Reset logging for each file
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
-    setup_logging(args.verbose, log_file)
+    setup_logging(args.verbose)
     logger = logging.getLogger(f"econtract.{input_path.stem}")
 
     logger.info("━" * 60)
     logger.info(f"Processing file: {input_path}")
+    logger.info(f"Output dir     : {output_dir}")
+    logger.info(f"LLM model      : {args.model}")
+    logger.info(f"Backend        : {args.backend}")
 
     # ── Step 1: Validate input ────────────────────────────────────────────
-    logger.info(f"Input file  : {input_path}")
-    logger.info(f"Output dir  : {output_dir}")
-    logger.info(f"LLM model   : {args.model}")
-    logger.info(f"Backend     : {args.backend}")
-
     if not input_path.exists():
         logger.error(f"File not found: {input_path}")
         return 1
@@ -135,12 +140,6 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     logger.info("STEP 2/5  Building LLM prompts...")
     system_prompt = get_system_prompt()
     user_prompt   = build_user_prompt(doc)
-
-    if args.verbose:
-        logger.debug("── USER PROMPT ──────────────────────────────────────")
-        for line in user_prompt.splitlines()[:40]:
-            logger.debug(f"  {line}")
-        logger.debug("  ...")
 
     if args.dry_run:
         logger.info("DRY RUN: skipping LLM call. Printing prompt excerpt.")
@@ -203,17 +202,15 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     logger.info("STEP 4/5  Post-processing & applying Solidity fixes...")
 
     final_code = apply_all_fixes(raw_code, doc)
-
-    # Re-run structural checks after deterministic fixes
     ok, final_issues = validate_solidity_output(final_code)
 
     elapsed = time.monotonic() - t0
 
-    # ── Step 6: Legal & compliance validation ─────────────────────────────
+    # ── Step 6: Legal & compliance validation (BEFORE saving) ─────────────
     validation_report = None
     if not args.skip_validation:
         logger.info("━" * 60)
-        logger.info("STEP 5/5  Running smart contract legal validation suite...")
+        logger.info("STEP 5/5  Running smart contract validation suite...")
         validation_report = run_contract_validation(final_code, doc)
 
         if validation_report:
@@ -236,73 +233,79 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
         else:
             logger.warning("  Validator not available — skipping.")
     else:
-        logger.info("STEP 5/5  Legal validation skipped (--skip-validation).")
+        logger.info("STEP 5/5  Validation skipped (--skip-validation).")
 
-    # ── Save outputs ──────────────────────────────────────────────────────
+    # ── Save outputs: ONLY .sol + results.json ────────────────────────────
+    # Clean the output directory so no stale files remain
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     sol_path = save_solidity(final_code, doc, output_dir)
     rep_path = save_report(
         doc, sol_path, final_issues, output_dir, elapsed,
         validation_report=validation_report,
     )
-    sum_path = save_human_readable_summary(
-        doc, sol_path, output_dir,
-        validation_report=validation_report,
-    )
+
+    # Verify results folder contains ONLY the two expected files
+    result_files = list(output_dir.iterdir())
+    expected = {sol_path.name, "results.json"}
+    actual   = {f.name for f in result_files}
+    if actual != expected:
+        extra = actual - expected
+        logger.warning(f"  Unexpected files in results dir (cleaning up): {extra}")
+        for f in result_files:
+            if f.name not in expected:
+                f.unlink()
 
     # ── Summary ───────────────────────────────────────────────────────────
     logger.info("━" * 60)
-    logger.info(f"CONVERSION COMPLETE for {input_path.name}")
-    logger.info(f"  Solidity file : {sol_path}")
-    logger.info(f"  Report        : {rep_path}")
-    logger.info(f"  Summary       : {sum_path}")
-    logger.info(f"  Elapsed       : {elapsed:.1f}s")
+    logger.info(f"CONVERSION COMPLETE  →  {input_path.name}")
+    logger.info(f"   Solidity  : {sol_path.name}")
+    logger.info(f"   Report    : results.json")
+    logger.info(f"   Elapsed  : {elapsed:.1f}s")
 
     if final_issues:
         logger.warning(f"  Structural issues ({len(final_issues)}):")
         for issue in final_issues:
             logger.warning(f"     • {issue}")
     else:
-        logger.info("  All structural validations passed.")
+        logger.info("  ✓ Structural validation passed.")
 
     if validation_report:
-        logger.info(f"  Accuracy score : {validation_report.accuracy_overall:.1f}%")
+        acc = validation_report.accuracy_overall
+        tests = f"{validation_report.passed}/{validation_report.total_tests}"
+        logger.info(f"  ✓ Accuracy score : {acc:.1f}%  ({tests} tests passed)")
 
     logger.info("━" * 60)
 
     if args.print_code:
         print("\n" + "═" * 70)
-        print(f"GENERATED SOLIDITY FOR: {input_path.name}")
+        print(f"GENERATED SOLIDITY — {input_path.name}")
         print("═" * 70)
         print(final_code)
 
-    # Exit code reflects worst issue found
+    # Exit code
     if validation_report and validation_report.critical_failures > 0:
-        return 3   # legal/compliance critical failures
+        return 3
     if not ok:
-        return 2   # structural warnings only
+        return 2
     return 0
 
 
 def run_pipeline(args: argparse.Namespace) -> int:
-    """
-    Main entry point. Handles multiple files.
-    """
     print(BANNER)
     overall_exit_code = 0
-
     for input_file_str in args.inputs:
         input_file = Path(input_file_str)
-        exit_code = run_pipeline_for_file(input_file, args)
+        exit_code  = run_pipeline_for_file(input_file, args)
         if exit_code > overall_exit_code:
             overall_exit_code = exit_code
-
-    num_files = len(args.inputs)
-    logger.info(f"Processed {num_files} file(s).")
+    logger.info(f"Processed {len(args.inputs)} file(s).")
     if overall_exit_code > 0:
         logger.warning("One or more files had issues during conversion.")
     else:
         logger.info("All files converted successfully.")
-
     return overall_exit_code
 
 
@@ -317,16 +320,16 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    p.add_argument("inputs", nargs='+', help="Path(s) to the eContract file(s) (.docx or .txt)")
+    p.add_argument("inputs", nargs="+",
+                   help="Path(s) to the eContract file(s) (.docx or .txt)")
     p.add_argument("-o", "--output", default="./Results",
-                   help="Output directory (default: ./Results)")
+                   help="Output root directory (default: ./Results)")
     p.add_argument("-m", "--model",
-                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:14b"),
-                   help="LLM model name")
+                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"))
     p.add_argument("--backend", choices=["ollama", "openai"],
                    default=os.environ.get("LLM_BACKEND", "ollama"))
     p.add_argument("--ollama-url",
-                   default=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+                   default=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))
     p.add_argument("--temperature", type=float, default=0.1)
     p.add_argument("--validate-llm", action="store_true",
                    help="Run a second LLM self-validation pass")
@@ -341,8 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    # Setup initial logging to catch errors during arg parsing
-    setup_logging(verbose=True, log_file=None)
+    setup_logging(verbose=True)
     parser = build_parser()
     args   = parser.parse_args()
     sys.exit(run_pipeline(args))

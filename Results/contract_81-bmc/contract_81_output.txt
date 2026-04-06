@@ -1,0 +1,2 @@
+Compiler run successful, no output requested.
+Results/contract_81-bmc/contract_81_output.txt
