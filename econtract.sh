@@ -39,7 +39,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="${SCRIPT_DIR}/econtract_converter.py"
 RESULTS_ROOT="${SCRIPT_DIR}/Results"
 LLM_MODEL="${LLM_MODEL:-qwen2.5-coder:14b}"
+<<<<<<< HEAD
 OLLAMA_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+=======
+OLLAMA_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
+>>>>>>> 2db45de8ff2194adfb124be6ee7c23af19fafb1c
 LLM_BACKEND="${LLM_BACKEND:-ollama}"
 TEMPERATURE="0.1"
 EXTRA_ARGS=()

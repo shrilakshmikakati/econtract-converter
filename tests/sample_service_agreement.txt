@@ -1,0 +1,114 @@
+SERVICE AGREEMENT CONTRACT
+
+This Service Agreement ("Agreement") is entered into as of January 15, 2025 ("Effective Date")
+by and between:
+
+Service Provider: TechBuild Solutions Ltd., a company duly incorporated under the laws of India,
+with registered address at 42 Cyber Towers, Hyderabad, Telangana 500081, India.
+Ethereum Address: 0xAbC1234567890abcdef1234567890abcdef123456
+
+Client: GreenLeaf Enterprises Pvt. Ltd., a company incorporated under the Companies Act 2013,
+with registered address at 7 Green Park Avenue, Bengaluru, Karnataka 560001, India.
+Ethereum Address: 0xDEF9876543210fedcba9876543210fedcba987654
+
+WHEREAS, Service Provider desires to provide software development services to Client,
+and Client desires to engage Service Provider on the terms set forth herein.
+
+NOW THEREFORE, in consideration of the mutual covenants herein, the parties agree as follows:
+
+1. SERVICES AND DELIVERABLES
+
+The Service Provider shall design, develop, test, and deliver a custom blockchain-integrated
+inventory management system ("System") as described in Schedule A attached hereto.
+Deliverables shall include: (a) fully functional source code, (b) technical documentation,
+(c) deployment scripts, and (d) post-deployment support for 30 days.
+
+2. TERM AND DURATION
+
+This Agreement shall commence on the Effective Date and shall remain in full force and effect
+for a period of 12 months, expiring on January 14, 2026, unless earlier terminated pursuant
+to the provisions herein. Either party may renew this Agreement by providing written notice
+no less than 30 days prior to expiration.
+
+3. PAYMENT TERMS
+
+3.1 Total Contract Value: 10 ETH (ten ether), payable as follows:
+    - Milestone 1 (Project Kickoff): 3 ETH, due within 7 days of execution.
+    - Milestone 2 (Beta Delivery): 4 ETH, due within 3 days of beta acceptance.
+    - Milestone 3 (Final Delivery): 3 ETH, due within 5 days of final sign-off.
+
+3.2 All payments shall be made in ETH to the Service Provider's Ethereum address above.
+
+3.3 Payments not received within 14 days of the due date shall incur a late payment
+    penalty of 0.01 ETH per day of delay.
+
+4. PENALTY CLAUSE
+
+4.1 If the Service Provider fails to deliver any milestone within 30 days of the agreed
+    delivery date, Client may deduct a penalty of 0.005 ETH per day of delay from the
+    corresponding milestone payment, up to a maximum of 20% of the total contract value.
+
+4.2 If Client fails to provide timely feedback or approvals within 7 days of a delivery,
+    the delivery deadline shall be extended by an equal number of days.
+
+5. INTELLECTUAL PROPERTY
+
+All intellectual property rights, including but not limited to copyrights, patents,
+trademarks, and trade secrets, arising from or in connection with the Services and
+Deliverables shall vest exclusively in the Client upon receipt of full payment.
+Service Provider retains no rights to the Deliverables post-payment.
+
+6. CONFIDENTIALITY AND NON-DISCLOSURE
+
+Each party shall maintain the confidentiality of the other party's Confidential Information
+and shall not disclose, reproduce, or use such information for any purpose other than
+fulfilling its obligations under this Agreement. This obligation shall survive termination
+of this Agreement for a period of 3 years.
+
+7. DISPUTE RESOLUTION
+
+7.1 Any dispute arising out of or relating to this Agreement shall first be referred to
+    senior management of both parties for resolution within 15 days.
+
+7.2 If unresolved, disputes shall be submitted to binding arbitration under the rules of
+    the Arbitration and Conciliation Act, 1996 (India), before a single arbitrator
+    mutually agreed upon by the parties.
+
+7.3 The arbitrator's Ethereum address for holding disputed funds during arbitration:
+    0x1111222233334444555566667777888899990000
+
+8. GOVERNING LAW
+
+This Agreement shall be governed by and construed in accordance with the laws of India,
+and subject to the exclusive jurisdiction of courts in Hyderabad, Telangana.
+
+9. TERMINATION
+
+9.1 Either party may terminate this Agreement for cause upon 15 days written notice if the
+    other party materially breaches any provision and fails to cure such breach within
+    the notice period.
+
+9.2 Upon termination, Service Provider shall deliver all completed work and Client shall
+    pay for work completed up to the termination date on a pro-rata basis.
+
+9.3 Sections 5 (Intellectual Property), 6 (Confidentiality), 7 (Dispute Resolution),
+    and 8 (Governing Law) shall survive termination of this Agreement.
+
+10. ENTIRE AGREEMENT
+
+This Agreement constitutes the entire agreement between the parties with respect to the
+subject matter hereof and supersedes all prior negotiations, representations, or agreements.
+No amendment shall be effective unless in writing and signed by authorized representatives
+of both parties.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+Service Provider: TechBuild Solutions Ltd.
+Authorized Signatory: Ravi Kumar Sharma
+Title: Chief Executive Officer
+Date: January 15, 2025
+
+Client: GreenLeaf Enterprises Pvt. Ltd.
+Authorized Signatory: Priya Nair
+Title: Managing Director
+Date: January 15, 2025

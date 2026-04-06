@@ -1,0 +1,17 @@
+﻿(venv) archikiess@shrilakshmi:~/Projects/ContractForge_Terminal/econtract-system$ solc Results/contract_0/contract_0.sol
+Error: Expected type name
+   --> Results/contract_0/contract_0.sol:192:31:
+    |
+192 |         uint256 _liabilityCap,,
+    |                               ^
+
+(venv) archikiess@shrilakshmi:~/Projects/ContractForge_Terminal/econtract-system$ solc Results/contract_0/contract_0.sol
+Error: Identifier already declared.
+  --> Results/contract_0/contract_0.sol:67:5:
+   |
+67 |     uint256 public constant AMOUNT_1 = 1; // raw=1.13 1.13
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: The previous declaration is here:
+  --> Results/contract_0/contract_0.sol:66:5:
+   |
+66 |     uint256 public constant AMOUNT_1 = 1; // raw=1.7 1.7
