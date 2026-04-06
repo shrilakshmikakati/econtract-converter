@@ -72,23 +72,30 @@ BANNER = r"""
 #  Core pipeline
 # ═══════════════════════════════════════════════════════════════════════════
 
-def run_pipeline(args: argparse.Namespace) -> int:
+def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     """
-    Full conversion pipeline.
+    Full conversion pipeline for a single file.
     Exit codes:
       0 — success, all validations passed
       1 — hard failure (extraction / LLM error)
       2 — generated but with structural warnings
       3 — generated but failed legal/compliance quality gate
     """
-    print(BANNER)
     t0 = time.monotonic()
 
-    input_path  = Path(args.input).resolve()
-    output_dir  = Path(args.output).resolve()
+    input_path  = input_file.resolve()
+    # Generate a unique output directory for each file based on its name
+    output_dir  = Path(args.output).resolve() / input_path.stem
     log_file    = output_dir / "logs" / "conversion.log"
 
+    # Reset logging for each file
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
     setup_logging(args.verbose, log_file)
+    logger = logging.getLogger(f"econtract.{input_path.stem}")
+
+    logger.info("━" * 60)
+    logger.info(f"Processing file: {input_path}")
 
     # ── Step 1: Validate input ────────────────────────────────────────────
     logger.info(f"Input file  : {input_path}")
@@ -244,7 +251,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     # ── Summary ───────────────────────────────────────────────────────────
     logger.info("━" * 60)
-    logger.info("CONVERSION COMPLETE")
+    logger.info(f"CONVERSION COMPLETE for {input_path.name}")
     logger.info(f"  Solidity file : {sol_path}")
     logger.info(f"  Report        : {rep_path}")
     logger.info(f"  Summary       : {sum_path}")
@@ -264,7 +271,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     if args.print_code:
         print("\n" + "═" * 70)
-        print("GENERATED SOLIDITY CONTRACT:")
+        print(f"GENERATED SOLIDITY FOR: {input_path.name}")
         print("═" * 70)
         print(final_code)
 
@@ -274,6 +281,29 @@ def run_pipeline(args: argparse.Namespace) -> int:
     if not ok:
         return 2   # structural warnings only
     return 0
+
+
+def run_pipeline(args: argparse.Namespace) -> int:
+    """
+    Main entry point. Handles multiple files.
+    """
+    print(BANNER)
+    overall_exit_code = 0
+
+    for input_file_str in args.inputs:
+        input_file = Path(input_file_str)
+        exit_code = run_pipeline_for_file(input_file, args)
+        if exit_code > overall_exit_code:
+            overall_exit_code = exit_code
+
+    num_files = len(args.inputs)
+    logger.info(f"Processed {num_files} file(s).")
+    if overall_exit_code > 0:
+        logger.warning("One or more files had issues during conversion.")
+    else:
+        logger.info("All files converted successfully.")
+
+    return overall_exit_code
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -287,11 +317,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    p.add_argument("input",  help="Path to the eContract file (.docx or .txt)")
-    p.add_argument("-o", "--output", default="./output",
-                   help="Output directory (default: ./output)")
+    p.add_argument("inputs", nargs='+', help="Path(s) to the eContract file(s) (.docx or .txt)")
+    p.add_argument("-o", "--output", default="./Results",
+                   help="Output directory (default: ./Results)")
     p.add_argument("-m", "--model",
-                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),
+                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:14b"),
                    help="LLM model name")
     p.add_argument("--backend", choices=["ollama", "openai"],
                    default=os.environ.get("LLM_BACKEND", "ollama"))
@@ -311,6 +341,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Setup initial logging to catch errors during arg parsing
+    setup_logging(verbose=True, log_file=None)
     parser = build_parser()
     args   = parser.parse_args()
     sys.exit(run_pipeline(args))

@@ -1,0 +1,5 @@
+2026-04-06 09:57:42,632 [INFO] Input file  : /mnt/d/TRUSTINN/econtract-converter/run
+2026-04-06 09:57:42,633 [INFO] Output dir  : /mnt/d/TRUSTINN/econtract-converter/output
+2026-04-06 09:57:42,633 [INFO] LLM model   : qwen2.5-coder:7b
+2026-04-06 09:57:42,633 [INFO] Backend     : ollama
+2026-04-06 09:57:42,633 [ERROR] File not found: /mnt/d/TRUSTINN/econtract-converter/run
