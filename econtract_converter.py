@@ -35,7 +35,12 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from extractor import extract_contract, SUPPORTED_EXTENSIONS
 from prompt_builder import build_user_prompt, get_system_prompt, build_validation_prompt
 from llm_client import LLMClient, LLMConfig, validate_solidity_output
-from postprocessor import apply_all_fixes, save_solidity, save_report, save_human_readable_summary
+from postprocessor import (
+    apply_all_fixes,
+    save_solidity,
+    save_report,
+    run_contract_validation,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -61,7 +66,7 @@ logger = logging.getLogger("econtract")
 
 BANNER = r"""
 ╔══════════════════════════════════════════════════════════════╗
-║      eContract → Smart Contract Converter  v1.0              ║
+║      eContract → Smart Contract Converter  v2.0              ║
 ║      Solidity 0.8.16  |  Local LLM (Ollama)                  ║
 ╚══════════════════════════════════════════════════════════════╝
 """
@@ -73,10 +78,18 @@ BANNER = r"""
 
 def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     """
-    Full conversion pipeline.
-    Returns exit code (0 = success, 1 = failure).
+    Full conversion pipeline for a single file.
+
+    Results folder output (ONLY these two files):
+      Results/<stem>/<stem>.sol      — generated Solidity contract
+      Results/<stem>/results.json   — full report with accuracy + test results
+
+    Exit codes:
+      0 — success, all validations passed
+      1 — hard failure (extraction / LLM error)
+      2 — generated but with structural warnings
+      3 — generated but failed legal/compliance quality gate
     """
-    print(BANNER)
     t0 = time.monotonic()
 
     input_path = input_file.resolve()
@@ -189,15 +202,61 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
     logger.info("STEP 4/5  Post-processing & applying Solidity fixes...")
 
     final_code = apply_all_fixes(raw_code, doc)
-
-    # Re-validate after fixes
     ok, final_issues = validate_solidity_output(final_code)
 
     elapsed = time.monotonic() - t0
 
-    sol_path = save_solidity(final_code, doc, output_dir)
-    rep_path = save_report(doc, sol_path, final_issues, output_dir, elapsed)
-    sum_path = save_human_readable_summary(doc, sol_path, output_dir)
+    # ── Step 6: Legal & compliance validation (BEFORE saving) ─────────────
+    validation_report = None
+    if not args.skip_validation:
+        logger.info("━" * 60)
+        logger.info("STEP 5/5  Running smart contract validation suite...")
+        validation_report = run_contract_validation(final_code, doc)
+
+        if validation_report:
+            logger.info(f"  Overall accuracy   : {validation_report.accuracy_overall:.1f}%")
+            logger.info(f"  Solidity standards : {validation_report.accuracy_solidity:.1f}%")
+            logger.info(f"  Security           : {validation_report.accuracy_security:.1f}%")
+            logger.info(f"  Legal faithfulness : {validation_report.accuracy_legal:.1f}%")
+            logger.info(f"  Clause coverage    : {validation_report.accuracy_coverage:.1f}%")
+            logger.info(f"  Tests              : {validation_report.passed}/{validation_report.total_tests} passed")
+
+            if validation_report.critical_failures:
+                logger.warning(
+                    f"  ⚠  {validation_report.critical_failures} CRITICAL validation failure(s)!"
+                )
+                for r in validation_report.results:
+                    if not r.passed and r.severity == "critical":
+                        logger.warning(f"     • [{r.test_id}] {r.description}: {r.detail}")
+            else:
+                logger.info("  ✓ No critical validation failures.")
+        else:
+            logger.warning("  Validator not available — skipping.")
+    else:
+        logger.info("STEP 5/5  Validation skipped (--skip-validation).")
+
+    # ── Save outputs: ONLY .sol + results.json ────────────────────────────
+    # Clean the output directory so no stale files remain
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    sol_path = save_solidity(final_code, doc, output_dir, filename=input_path.stem)
+    rep_path = save_report(
+        doc, sol_path, final_issues, output_dir, elapsed,
+        validation_report=validation_report,
+    )
+
+    # Verify results folder contains ONLY the two expected files
+    result_files = list(output_dir.iterdir())
+    expected = {sol_path.name, "results.json"}
+    actual   = {f.name for f in result_files}
+    if actual != expected:
+        extra = actual - expected
+        logger.warning(f"  Unexpected files in results dir (cleaning up): {extra}")
+        for f in result_files:
+            if f.name not in expected:
+                f.unlink()
 
     # ── Summary ───────────────────────────────────────────────────────────
     logger.info("━" * 60)
@@ -211,7 +270,12 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
         for issue in final_issues:
             logger.warning(f"     • {issue}")
     else:
-        logger.info("  ✓  All structural validations passed.")
+        logger.info("  ✓ Structural validation passed.")
+
+    if validation_report:
+        acc = validation_report.accuracy_overall
+        tests = f"{validation_report.passed}/{validation_report.total_tests}"
+        logger.info(f"  ✓ Accuracy score : {acc:.1f}%  ({tests} tests passed)")
 
     logger.info("━" * 60)
 
@@ -221,7 +285,28 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
         print("═" * 70)
         print(final_code)
 
-    return 0 if ok else 2   # exit 2 = generated but with warnings
+    # Exit code
+    if validation_report and validation_report.critical_failures > 0:
+        return 3
+    if not ok:
+        return 2
+    return 0
+
+
+def run_pipeline(args: argparse.Namespace) -> int:
+    print(BANNER)
+    overall_exit_code = 0
+    for input_file_str in args.inputs:
+        input_file = Path(input_file_str)
+        exit_code  = run_pipeline_for_file(input_file, args)
+        if exit_code > overall_exit_code:
+            overall_exit_code = exit_code
+    logger.info(f"Processed {len(args.inputs)} file(s).")
+    if overall_exit_code > 0:
+        logger.warning("One or more files had issues during conversion.")
+    else:
+        logger.info("All files converted successfully.")
+    return overall_exit_code
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -235,58 +320,26 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-
-    p.add_argument(
-        "input",
-        help="Path to the eContract file (.docx or .txt)",
-    )
-    p.add_argument(
-        "-o", "--output",
-        default="./output",
-        help="Output directory (default: ./output)",
-    )
-    p.add_argument(
-        "-m", "--model",
-        default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),
-        help="LLM model name (default: qwen2.5-coder:7b)",
-    )
-    p.add_argument(
-        "--backend",
-        choices=["ollama", "openai"],
-        default=os.environ.get("LLM_BACKEND", "ollama"),
-        help="LLM backend (default: ollama)",
-    )
-    p.add_argument(
-        "--ollama-url",
-        default=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
-        help="Ollama base URL (default: http://localhost:11434)",
-    )
-    p.add_argument(
-        "--temperature",
-        type=float,
-        default=0.1,
-        help="LLM temperature 0–1 (default: 0.1 for accuracy)",
-    )
-    p.add_argument(
-        "--validate-llm",
-        action="store_true",
-        help="Run a second LLM pass to self-validate the generated contract",
-    )
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Extract & build prompt only, do not call LLM",
-    )
-    p.add_argument(
-        "--print-code",
-        action="store_true",
-        help="Print the generated Solidity to stdout",
-    )
-    p.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose/debug logging",
-    )
+    p.add_argument("inputs", nargs="+",
+                   help="Path(s) to the eContract file(s) (.docx or .txt)")
+    p.add_argument("-o", "--output", default="./Results",
+                   help="Output root directory (default: ./Results)")
+    p.add_argument("-m", "--model",
+                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"))
+    p.add_argument("--backend", choices=["ollama", "openai"],
+                   default=os.environ.get("LLM_BACKEND", "ollama"))
+    p.add_argument("--ollama-url",
+                   default=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))
+    p.add_argument("--temperature", type=float, default=0.1)
+    p.add_argument("--validate-llm", action="store_true",
+                   help="Run a second LLM self-validation pass")
+    p.add_argument("--skip-validation", action="store_true",
+                   help="Skip the legal/compliance test suite")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Extract & build prompt only, do not call LLM")
+    p.add_argument("--print-code", action="store_true",
+                   help="Print the generated Solidity to stdout")
+    p.add_argument("-v", "--verbose", action="store_true")
     return p
 
 
