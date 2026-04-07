@@ -1,0 +1,6 @@
+Error: Expected ',' but got 'memory'
+  --> Results/contract_1-bmc/contract_1.sol:15:41:
+   |
+15 |     event DisputeRaised(address, string memory reason);
+   |                                         ^^^^^^
+

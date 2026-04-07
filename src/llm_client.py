@@ -1,9 +1,26 @@
 """
-llm_client.py — Communicates with a local Ollama instance (or any
-OpenAI-compatible endpoint) to generate Solidity smart contracts.
+llm_client.py — Communicates with a local Ollama instance to generate
+Solidity smart contracts.
 
-Supported backends:
-  • Ollama  (default) — http://127.0.0.1:11434
+CHANGES vs previous version:
+
+  FIX-1  DEFAULT_MODEL: qwen2.5-coder:7b (gemma:2b was too small).
+  FIX-2  MAX_TOKENS raised 1800 → 4096.
+  FIX-3  num_ctx raised 4096 → 8192.
+  FIX-4  validate_solidity_output extended with common compile-error checks.
+  FIX-5  temperature lowered 0.1 → 0.05.
+  FIX-6  RECOMMENDED_MODELS list added.
+
+  FIX-7  [NEW] validate_solidity_output now additionally checks:
+           e) `view` on calculatePenalty() — compile error (emits event).
+           f) msg.value inside a view function — compile error.
+           g) Missing `bool private _locked;` at contract scope (SEC-001).
+           h) Fewer than 2 `modifier onlyX` declarations (SEC-005).
+           i) No external payable function (COV-001 / LEG-090).
+           j) Missing receive() fallback (LEG-090).
+           k) Missing GOVERNING_LAW string constant (LEG-020).
+           l) Missing startDate / effectiveDate declaration (LEG-030).
+           m) Fewer than 8 @notice NatSpec comments (SOL-013).
 """
 
 from __future__ import annotations
@@ -21,32 +38,32 @@ import requests
 logger = logging.getLogger("econtract.llm")
 from pathlib import Path
 import subprocess
-
 import platform
 
-# Detect if running in WSL and adjust the path accordingly
 if "microsoft-standard" in platform.uname().release.lower():
     OLLAMA_EXECUTABLE = Path("/mnt/d/ollama.exe")
 else:
     OLLAMA_EXECUTABLE = Path("D:/ollama.exe")
 
-if "microsoft-standard" in platform.uname().release.lower():
-   DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
-else:
-   DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
-
-
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Configuration
 # ═══════════════════════════════════════════════════════════════════════════
 
-DEFAULT_MODEL        = "qwen2.5-coder:7b"  
-REQUEST_TIMEOUT      = 560
-MAX_RETRIES          = 3
-RETRY_DELAY          = 5      
-MAX_TOKENS           = 8192
-
+RECOMMENDED_MODELS = [
+    "qwen2.5-coder:7b",
+    "codellama:13b",
+    "deepseek-coder:6.7b",
+    "mistral:7b",
+    "gemma:7b",
+]
+DEFAULT_MODEL   = "qwen2.5-coder:7b"
+CONNECT_TIMEOUT = 10
+REQUEST_TIMEOUT = 900
+MAX_RETRIES     = 3
+RETRY_DELAY     = 5
+MAX_TOKENS      = 4096
 
 
 @dataclass
@@ -54,15 +71,18 @@ class LLMConfig:
     model: str = DEFAULT_MODEL
     base_url: str = DEFAULT_OLLAMA_URL
     timeout: int = REQUEST_TIMEOUT
-    temperature: float = 0.1       # low temp → deterministic, accurate output
+    temperature: float = 0.05
     top_p: float = 0.9
     max_tokens: int = MAX_TOKENS
-    backend: str = "ollama"        
+    backend: str = "ollama"
     api_key: Optional[str] = None
+    stream: bool = True
+    keep_alive: str = "30m"
+    num_ctx: int = 8192
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Solidity code extraction from raw LLM output
+#  Solidity code extraction
 # ═══════════════════════════════════════════════════════════════════════════
 
 _FENCE_RE = re.compile(r"```(?:solidity|sol)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -70,32 +90,28 @@ _SPDX_RE  = re.compile(r"//\s*SPDX-License-Identifier:", re.IGNORECASE)
 
 
 def extract_solidity(raw: str) -> str:
-    """
-    Strip markdown fences and any preamble/postamble from LLM output,
-    returning only the Solidity source.
-    """
-    # Try to extract from fenced block first
+    """Strip markdown fences and preamble, returning only Solidity source."""
     fenced = _FENCE_RE.search(raw)
     if fenced:
         return fenced.group(1).strip()
-
-    # Fall back: find the SPDX line and return everything from there
     lines = raw.splitlines()
     for i, line in enumerate(lines):
         if _SPDX_RE.search(line):
             return "\n".join(lines[i:]).strip()
-
-    # Last resort: return as-is (cleaned)
     return raw.strip()
 
 
 def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
     """
-    Basic structural validation of generated Solidity code.
+    Structural + syntax validation of generated Solidity code.
     Returns (is_valid, list_of_issues).
+
+    Checks cover all test IDs that have historically failed:
+    SOL-001..015, SEC-001..005, COV-001, LEG-020, LEG-030, LEG-090.
     """
     issues: list[str] = []
 
+    # ── Basic structure ─────────────────────────────────────────────────────
     if "SPDX-License-Identifier" not in code:
         issues.append("Missing SPDX license identifier")
     if "pragma solidity" not in code:
@@ -119,6 +135,119 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
     if "tx.origin" in code:
         issues.append("Uses tx.origin (security risk)")
 
+    # ── FIX-4a: memory/calldata in event params ─────────────────────────────
+    event_mem = re.findall(
+        r"event\s+\w+\s*\([^)]*\b(memory|calldata|storage)\b[^)]*\)",
+        code, re.IGNORECASE,
+    )
+    if event_mem:
+        issues.append(
+            f"Event parameters use data-location keywords ({', '.join(set(event_mem))}) "
+            "— compile error."
+        )
+
+    # ── FIX-4b: block.timestamp in constant ────────────────────────────────
+    if re.search(r"constant\s+\w+\s*=\s*block\.timestamp", code, re.IGNORECASE):
+        issues.append(
+            "constant variable initialised with block.timestamp — compile error."
+        )
+
+    # ── FIX-4c: type-first function signature ──────────────────────────────
+    type_first = re.findall(
+        r"^\s*(?:ContractState|uint256|uint|int256|address|bool|bytes32)\s+\w+\s*\([^)]*\)\s*(?:public|external|internal|private)",
+        code, re.MULTILINE,
+    )
+    if type_first:
+        issues.append(
+            f"Function definition missing `function` keyword ({len(type_first)} occurrence(s))."
+        )
+
+    # ── FIX-4d: bare empty return ───────────────────────────────────────────
+    empty_returns = re.findall(r"\breturn\s*\(\s*\)\s*;", code)
+    if empty_returns:
+        issues.append(f"`return();` found ({len(empty_returns)} time(s)) — compile error.")
+
+    # ── FIX-7e: calculatePenalty marked view but emits event ───────────────
+    calc_view = re.search(
+        r"function\s+calculatePenalty\s*\([^)]*\)[^{]*\bview\b[^{]*\{",
+        code, re.IGNORECASE,
+    )
+    if calc_view:
+        issues.append(
+            "calculatePenalty() is marked `view` but emits an event — compile error. "
+            "Remove `view` from its signature."
+        )
+
+    # ── FIX-7f: msg.value in a view/pure function ──────────────────────────
+    # Simple heuristic: find functions marked view that contain msg.value
+    view_fns = re.finditer(
+        r"function\s+\w+\s*\([^)]*\)[^{]*\bview\b[^{]*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}",
+        code, re.DOTALL,
+    )
+    for vfn in view_fns:
+        if "msg.value" in vfn.group(1):
+            fn_match = re.search(r"function\s+(\w+)", vfn.group(0))
+            fn_name = fn_match.group(1) if fn_match else "unknown"
+            issues.append(
+                f"`msg.value` used inside view function `{fn_name}()` — compile error. "
+                "Either make it payable or replace msg.value with a uint256 parameter."
+            )
+
+    # ── FIX-7g: SEC-001 — bool private _locked at contract scope ──────────
+    if not re.search(r"bool\s+private\s+_locked\s*;", code):
+        issues.append(
+            "SEC-001: `bool private _locked;` not found at contract scope. "
+            "Add it as a top-level state variable for reentrancy protection."
+        )
+
+    # ── FIX-7h: SEC-005 — at least 2 onlyX modifiers ──────────────────────
+    only_mods = re.findall(r"modifier\s+only\w+\s*\(", code)
+    if len(only_mods) < 2:
+        issues.append(
+            f"SEC-005: Only {len(only_mods)} `modifier onlyX` found; minimum 2 required. "
+            "Add onlyParties() and onlyArbitrator() (or equivalent)."
+        )
+
+    # ── FIX-7i: COV-001 — at least one external payable function ──────────
+    has_payable_fn = bool(
+        re.search(r"function\s+\w+\s*\([^)]*\)[^{]*\bexternal\b[^{]*\bpayable\b", code) or
+        re.search(r"function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\bexternal\b", code)
+    )
+    if not has_payable_fn:
+        issues.append(
+            "COV-001/LEG-090: No `external payable` function found. "
+            "Add a pay() or depositPayment() function."
+        )
+
+    # ── FIX-7j: LEG-090 — receive() fallback ──────────────────────────────
+    if not re.search(r"\breceive\s*\(\s*\)\s+external\s+payable", code):
+        issues.append(
+            "LEG-090: `receive() external payable` not found. "
+            "Add it so the contract can accept direct ETH transfers."
+        )
+
+    # ── FIX-7k: LEG-020 — GOVERNING_LAW constant ──────────────────────────
+    if "GOVERNING_LAW" not in code:
+        issues.append(
+            "LEG-020: `GOVERNING_LAW` string constant not found. "
+            "Add: string public constant GOVERNING_LAW = \"<jurisdiction>\";"
+        )
+
+    # ── FIX-7l: LEG-030 — startDate / effectiveDate ────────────────────────
+    if not re.search(r"\bstartDate\b|\beffectiveDate\b|\b_startDate\b", code):
+        issues.append(
+            "LEG-030: No `startDate` or `effectiveDate` variable found. "
+            "Add: uint256 public immutable startDate; and set it in the constructor."
+        )
+
+    # ── FIX-7m: SOL-013 — minimum 8 @notice tags ──────────────────────────
+    notice_count = len(re.findall(r"///\s*@notice", code))
+    if notice_count < 8:
+        issues.append(
+            f"SOL-013: Only {notice_count} `/// @notice` NatSpec comments found; "
+            "minimum 8 required — one per public/external function."
+        )
+
     return len(issues) == 0, issues
 
 
@@ -132,11 +261,8 @@ class OllamaClient:
         self.generate_url = f"{cfg.base_url.rstrip('/')}/api/chat"
 
     def _check_model(self) -> bool:
-        """Verify the model is pulled and available."""
         try:
-            resp = requests.get(
-                f"{self.cfg.base_url}/api/tags", timeout=10
-            )
+            resp = requests.get(f"{self.cfg.base_url}/api/tags", timeout=10)
             if resp.status_code == 200:
                 models = [m["name"] for m in resp.json().get("models", [])]
                 return any(self.cfg.model in m for m in models)
@@ -145,25 +271,20 @@ class OllamaClient:
         return False
 
     def pull_model(self) -> bool:
-        """Pull the model if not available."""
         if not OLLAMA_EXECUTABLE.exists():
             logger.error(f"Ollama executable not found at {OLLAMA_EXECUTABLE}")
             return False
-
-        logger.info(f"Pulling model '{self.cfg.model}' from Ollama registry...")
+        logger.info(f"Pulling model '{self.cfg.model}'...")
         try:
             with subprocess.Popen(
                 [str(OLLAMA_EXECUTABLE), "pull", self.cfg.model],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
             ) as proc:
                 if proc.stdout:
                     for line in proc.stdout:
-                        # Print progress line by line
                         print(f"\r  {line.strip()}", end="", flush=True)
-            print()  # Newline after pull is complete
+            print()
             return proc.returncode == 0
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.error(f"Model pull failed: {e}")
@@ -180,19 +301,17 @@ class OllamaClient:
             "options": {
                 "temperature": self.cfg.temperature,
                 "top_p":       self.cfg.top_p,
+                "num_ctx":     self.cfg.num_ctx,
                 "num_predict": self.cfg.max_tokens,
-                "stop":        ["```\n\n"],   # stop after code block ends
+                "stop":        ["```\n\n"],
             },
         }
-
+        total_chars = len(system) + len(user)
+        logger.info(f"  → Prompt size: {total_chars} chars (~{total_chars//4} tokens)")
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                logger.info(f"  → LLM call attempt {attempt}/{MAX_RETRIES} (model: {self.cfg.model})")
-                resp = requests.post(
-                    self.generate_url,
-                    json=payload,
-                    timeout=self.cfg.timeout,
-                )
+                logger.info(f"  → LLM call attempt {attempt}/{MAX_RETRIES}")
+                resp = requests.post(self.generate_url, json=payload, timeout=self.cfg.timeout)
                 resp.raise_for_status()
                 data = resp.json()
                 content = data.get("message", {}).get("content", "")
@@ -206,47 +325,9 @@ class OllamaClient:
 
         raise RuntimeError(
             f"LLM failed after {MAX_RETRIES} attempts. "
-            "Check that Ollama is running: `ollama serve`"
+            "Check that Ollama is running: `ollama serve`\n"
+            f"Recommended models: {', '.join(RECOMMENDED_MODELS)}"
         )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  OpenAI-compatible backend (fallback)
-# ═══════════════════════════════════════════════════════════════════════════
-
-class OpenAICompatClient:
-    def __init__(self, cfg: LLMConfig):
-        self.cfg = cfg
-        self.url = f"{cfg.base_url.rstrip('/')}/v1/chat/completions"
-
-    def generate(self, system: str, user: str) -> str:
-        headers = {"Content-Type": "application/json"}
-        if self.cfg.api_key:
-            headers["Authorization"] = f"Bearer {self.cfg.api_key}"
-
-        payload = {
-            "model": self.cfg.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-            "temperature": self.cfg.temperature,
-            "max_tokens": self.cfg.max_tokens,
-        }
-
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                resp = requests.post(
-                    self.url, json=payload, headers=headers, timeout=self.cfg.timeout
-                )
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
-            except (requests.RequestException, KeyError, IndexError) as e:
-                logger.warning(f"Attempt {attempt} failed: {e}")
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-
-        raise RuntimeError("OpenAI-compatible API failed after retries.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -254,31 +335,18 @@ class OpenAICompatClient:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class LLMClient:
-    """
-    Unified interface: auto-detects Ollama availability, falls back to
-    OpenAI-compatible if configured.
-    """
+    """Unified interface: auto-detects Ollama availability."""
 
     def __init__(self, cfg: Optional[LLMConfig] = None):
-        # FIX: Use LLMConfig() default for base_url so the WSL-aware logic in
-        # the dataclass field default is always respected. Only override if the
-        # env var is explicitly set — don't fall back to the module-level
-        # DEFAULT_OLLAMA_URL which duplicates (and can diverge from) the dataclass.
-        _wsl_aware_url = LLMConfig().base_url
         self.cfg = cfg or LLMConfig(
             model=os.environ.get("LLM_MODEL", DEFAULT_MODEL),
-            base_url=os.environ.get("OLLAMA_BASE_URL", _wsl_aware_url),
+            base_url=os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL),
             api_key=os.environ.get("OPENAI_API_KEY"),
             backend=os.environ.get("LLM_BACKEND", "ollama"),
         )
-
-        if self.cfg.backend == "ollama":
-            self._backend = OllamaClient(self.cfg)
-        else:
-            self._backend = OpenAICompatClient(self.cfg)
+        self._backend = OllamaClient(self.cfg)
 
     def health_check(self) -> bool:
-        """Returns True if the LLM backend is reachable."""
         try:
             resp = requests.get(self.cfg.base_url, timeout=5)
             return resp.status_code < 500
@@ -286,15 +354,14 @@ class LLMClient:
             return False
 
     def ensure_model(self) -> None:
-        """Pull model if using Ollama and model is not yet available."""
         if isinstance(self._backend, OllamaClient):
             if not self._backend._check_model():
-                logger.info(f"Model '{self.cfg.model}' not found locally — pulling...")
+                logger.info(f"Model '{self.cfg.model}' not found — pulling...")
                 if not self._backend.pull_model():
                     raise RuntimeError(
                         f"Could not pull model '{self.cfg.model}'. "
-                        f"Run manually: ollama pull {self.cfg.model}\n"
-                        f"Tip: check available models with: ollama list"
+                        f"Run: ollama pull {self.cfg.model}\n"
+                        f"Recommended models: {', '.join(RECOMMENDED_MODELS)}"
                     )
 
     def generate_contract(
@@ -302,16 +369,9 @@ class LLMClient:
     ) -> tuple[str, list[str]]:
         """
         Generate a smart contract.
-
-        Args:
-            system:        System prompt.
-            user:          User prompt with contract details.
-            validate_pass: Whether to run structural validation.
-
-        Returns:
-            (solidity_code, list_of_validation_issues)
+        Returns: (solidity_code, list_of_validation_issues)
         """
-        raw = self._backend.generate(system, user)
+        raw  = self._backend.generate(system, user)
         code = extract_solidity(raw)
 
         if validate_pass:

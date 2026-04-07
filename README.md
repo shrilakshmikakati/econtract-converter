@@ -164,8 +164,7 @@ Options:
 ### Python directly
 
 ```bash
-python3 econtract_converter.py contract.docx
-python3 econtract_converter.py contract.txt --model qwen2.5-coder:14b --output ./out
+python3 econtract_converter.py contract.txt
 ```
 
 ---
@@ -174,10 +173,8 @@ python3 econtract_converter.py contract.txt --model qwen2.5-coder:14b --output .
 
 | Model | RAM needed | Speed | Accuracy |
 |-------|-----------|-------|----------|
-| `qwen2.5-coder:7b`  | ~6 GB  | ~1-3 min | Good  |
-| `qwen2.5-coder:14b` | ~12 GB | ~3-7 min | Better |
-| `qwen2.5-coder:32b` | ~24 GB | ~8-15 min | Best |
-| `deepseek-coder:6.7b` | ~5 GB | ~1-2 min | Good |
+| `qwen2.5-coder:7b`  | ~6 GB  | ~5-7 min | Good  |
+
 
 ---
 

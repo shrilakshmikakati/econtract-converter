@@ -13,7 +13,7 @@ Usage:
 
 Examples:
     python econtract_converter.py contract.docx
-    python econtract_converter.py contract.txt --model qwen2.5-coder:7b --output ./out
+    python econtract_converter.py contract.txt --model mistral:latest  --output ./out
     python econtract_converter.py contract.docx --dry-run
     python econtract_converter.py contract.txt --backend openai --model gpt-4o
     python econtract_converter.py contract.txt --skip-validation
@@ -325,7 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", default="./Results",
                    help="Output root directory (default: ./Results)")
     p.add_argument("-m", "--model",
-                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"))
+                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),)
     p.add_argument("--backend", choices=["ollama", "openai"],
                    default=os.environ.get("LLM_BACKEND", "ollama"))
     p.add_argument("--ollama-url",

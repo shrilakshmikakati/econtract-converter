@@ -1,0 +1,6 @@
+Error: Expected primary expression.
+  --> Results/contract_56-bmc/contract_56.sol:15:46:
+   |
+15 |     uint256 public constant EFFECTIVE_DATE = <unix_timestamp>; // human date
+   |                                              ^
+

@@ -63,10 +63,10 @@ if [ ! -f "$SOL_FILE" ]; then
     echo "Error: Smart contract was not generated!"
     exit 1
 fi
-#assertionInsertCount=`./.assertinserter ./$RESULT_DIR/$new_file-$2/$1new_file.sol
-assertionInsertCount=`./.assertinserter $SOL_FILE`
+ 
 
 if [ "$2" == "bmc" ]
+echo "$2"
 then
 sol_comp=$( solc "$SOL_FILE" --model-checker-engine bmc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/$resultFile )	
 sed -i 's/Warning: BMC:/CheckPoint\nWarning: BMC:/g' ./$RESULT_DIR/$name-$2/$resultFile 

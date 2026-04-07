@@ -1,0 +1,12 @@
+Error: "msg.value" and "callvalue()" can only be used in payable public functions. Make the function "payable" or use an internal function to avoid this error.
+  --> Results/contract_10-bmc/contract_10.sol:53:33:
+   |
+53 |         uint256 penaltyAmount = msg.value * _penaltyRate / 10000;
+   |                                 ^^^^^^^^^
+
+Error: Function cannot be declared as view because this expression (potentially) modifies the state.
+  --> Results/contract_10-bmc/contract_10.sol:54:14:
+   |
+54 |         emit PenaltyCalculated(penaltyAmount);
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
