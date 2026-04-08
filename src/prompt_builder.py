@@ -608,3 +608,296 @@ CONTRACT TO AUDIT:
 
 # Alias
 get_validation_prompt = build_validation_prompt
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Feedback-loop prompt builder
+# ═══════════════════════════════════════════════════════════════════════════
+
+def build_feedback_prompt(
+    solidity_code: str,
+    doc: "ContractDocument",
+    failed_tests: list,
+    validation_issues: list[str],
+    attempt: int,
+    max_attempts: int,
+) -> str:
+    """
+    Build a targeted correction prompt that feeds failed test results and
+    structural validation issues back to the LLM so it can fix them.
+
+    Parameters
+    ----------
+    solidity_code    : The contract code that failed validation.
+    doc              : Parsed ContractDocument for context.
+    failed_tests     : List of TestResult objects that did not pass.
+    validation_issues: List of issue strings from validate_solidity_output().
+    attempt          : Current feedback iteration (1-based).
+    max_attempts     : Total allowed iterations.
+    """
+    clean_title = doc.title.lstrip("\ufeff").strip()
+    epoch       = _date_to_epoch(doc.effective_date or "")
+    gov_law     = doc.governing_law or "Not specified"
+    gov_word    = gov_law.split()[0] if gov_law and gov_law != "Not specified" else "General"
+    sep         = "=" * 70
+
+    # ── Categorise failures ──────────────────────────────────────────────────
+    critical_tests = [t for t in failed_tests if t.severity == "critical"]
+    major_tests    = [t for t in failed_tests if t.severity == "major"]
+    minor_tests    = [t for t in failed_tests if t.severity in ("minor", "info")]
+
+    lines = [
+        sep,
+        f"SMART CONTRACT CORRECTION REQUEST — Attempt {attempt}/{max_attempts}",
+        sep,
+        "",
+        f"Contract : {clean_title}",
+        f"Governing law : {gov_law}",
+        f"EFFECTIVE_DATE constant : {epoch}  (integer literal, NOT block.timestamp)",
+        f"GOVERNING_LAW constant  : \"{gov_word}\"",
+        "",
+        "The Solidity contract below FAILED automated validation.",
+        "You MUST fix EVERY issue listed. Output ONLY corrected Solidity — no prose.",
+        "",
+    ]
+
+    # ── Structural / compile-time issues (from validate_solidity_output) ───
+    if validation_issues:
+        lines += [
+            f"{'─'*70}",
+            "STRUCTURAL / COMPILE-TIME ISSUES  (fix ALL — these prevent compilation):",
+            "",
+        ]
+        for i, issue in enumerate(validation_issues, 1):
+            lines.append(f"  {i:2d}. {issue}")
+        lines.append("")
+
+    # ── Critical test failures ───────────────────────────────────────────────
+    if critical_tests:
+        lines += [
+            f"{'─'*70}",
+            "CRITICAL TEST FAILURES  (fix ALL — these block deployment):",
+            "",
+        ]
+        for t in critical_tests:
+            lines.append(f"  ✗ [{t.test_id}] {t.description}")
+            if t.detail:
+                lines.append(f"       Detail: {t.detail}")
+        lines.append("")
+
+    # ── Major test failures ──────────────────────────────────────────────────
+    if major_tests:
+        lines += [
+            f"{'─'*70}",
+            "MAJOR TEST FAILURES  (fix ALL — these indicate missing contract logic):",
+            "",
+        ]
+        for t in major_tests:
+            lines.append(f"  ✗ [{t.test_id}] {t.description}")
+            if t.detail:
+                lines.append(f"       Detail: {t.detail}")
+        lines.append("")
+
+    # ── Minor / info failures ────────────────────────────────────────────────
+    if minor_tests:
+        lines += [
+            f"{'─'*70}",
+            "MINOR / INFO FAILURES  (fix these too for full compliance):",
+            "",
+        ]
+        for t in minor_tests:
+            lines.append(f"  ✗ [{t.test_id}] {t.description}")
+            if t.detail:
+                lines.append(f"       Detail: {t.detail}")
+        lines.append("")
+
+    # ── Targeted fix instructions derived from test IDs ─────────────────────
+    fix_hints = _derive_fix_hints(failed_tests, validation_issues, epoch, gov_word)
+    if fix_hints:
+        lines += [
+            f"{'─'*70}",
+            "TARGETED FIX INSTRUCTIONS:",
+            "",
+        ]
+        lines.extend(fix_hints)
+        lines.append("")
+
+    # ── Self-check checklist (always included) ───────────────────────────────
+    lines += [
+        f"{'─'*70}",
+        "BEFORE OUTPUTTING — verify ALL boxes are ticked:",
+        "",
+        "  □ SPDX-License-Identifier on line 1?",
+        "  □ pragma solidity ^0.8.16 on line 2?",
+        "  □ bool private _locked; at contract scope (NOT inside modifier)?",
+        "  □ modifier noReentrant() takes ZERO parameters?",
+        "  □ noReentrant applied to EVERY payable / ETH-transferring function?",
+        "  □ ZERO require(condition, \"string\") calls?",
+        "  □ All revert targets declared as custom errors?",
+        "  □ All emit targets declared as events?",
+        "  □ Event params have NO memory/calldata/storage keywords?",
+        "  □ Every function definition starts with `function` keyword?",
+        f"  □ uint256 public constant EFFECTIVE_DATE = {epoch};  (integer, not block.timestamp)?",
+        "  □ uint256 public immutable startDate; set = EFFECTIVE_DATE in constructor?",
+        f"  □ string public constant GOVERNING_LAW = \"{gov_word}\";  present?",
+        "  □ ≥2 modifier onlyX declarations?",
+        "  □ ≥1 external payable function?",
+        "  □ receive() external payable present?",
+        "  □ calculatePenalty() is NOT view, uses uint256 param not msg.value?",
+        "  □ dispute() function present?",
+        "  □ acknowledgeDelivery() or confirmMilestone() present?",
+        "  □ enum ContractState with ≥5 states?",
+        "  □ ≥8 /// @notice NatSpec comments?",
+        "  □ Balanced braces {}?",
+        "",
+        sep,
+        "CONTRACT TO CORRECT (fix every issue listed above):",
+        sep,
+        "",
+        solidity_code,
+        "",
+        sep,
+        "Output ONLY the corrected Solidity source code — no markdown, no explanation:",
+        sep,
+    ]
+
+    return "\n".join(lines)
+
+
+def _derive_fix_hints(
+    failed_tests: list,
+    validation_issues: list[str],
+    epoch: int,
+    gov_word: str,
+) -> list[str]:
+    """
+    Map failing test IDs to concrete, actionable fix instructions so the
+    LLM gets targeted guidance instead of only generic rules.
+    """
+    hints: list[str] = []
+    ids = {t.test_id for t in failed_tests}
+
+    _HINT_MAP: dict[str, str] = {
+        "SOL-001": "Add `// SPDX-License-Identifier: MIT` as the very first line.",
+        "SOL-002": "Add `pragma solidity ^0.8.16;` as the second line.",
+        "SOL-003": "Ensure a top-level `contract <Name> { ... }` block exists.",
+        "SOL-004": "Add a `constructor(...)` that initialises all state variables.",
+        "SOL-005": "Declare at least 3 events: e.g. ContractCreated, PaymentMade, DisputeRaised.",
+        "SOL-006": "Emit events in every state-changing function (at least 2 `emit` calls).",
+        "SOL-007": (
+            "Replace ALL `require(condition, \"string\")` with:\n"
+            "        if (!condition) revert CustomError();"
+        ),
+        "SOL-008": "Remove any `import` lines referencing SafeMath and any `using SafeMath` lines.",
+        "SOL-009": "Remove any `import \"@openzeppelin/...\"` lines.",
+        "SOL-010": "Remove all `selfdestruct(...)` calls — deprecated in Solidity 0.8.x.",
+        "SOL-011": "Replace `tx.origin` with `msg.sender` everywhere.",
+        "SOL-012": (
+            "Count `{` and `}` — they must match exactly.\n"
+            "        Close every function, modifier, and contract body properly."
+        ),
+        "SOL-013": (
+            "Add `/// @notice <description>` above EVERY public/external function.\n"
+            "        Minimum 8 @notice comments required."
+        ),
+        "SOL-014": "Add `receive() external payable { emit PaymentReceived(msg.sender, msg.value); }`.",
+        "SOL-015": "Add `enum ContractState { Created, Active, Completed, Disputed, Terminated }`.",
+        "SOL-016": (
+            "Remove `view` from calculatePenalty() — it emits an event, so it cannot be view.\n"
+            "        Change: `function calculatePenalty(...) external view returns (...)`\n"
+            "        To:     `function calculatePenalty(...) external returns (...)`"
+        ),
+        "SEC-001": (
+            "Add `bool private _locked;` in the STATE VARIABLE section of the contract,\n"
+            "        directly after the last enum/event/error declaration.\n"
+            "        It must NOT be inside any modifier or function."
+        ),
+        "SEC-002": (
+            "Add the noReentrant modifier:\n"
+            "        modifier noReentrant() {\n"
+            "            if (_locked) revert ReentrantCall();\n"
+            "            _locked = true;\n"
+            "            _;\n"
+            "            _locked = false;\n"
+            "        }"
+        ),
+        "SEC-003": "Apply `noReentrant` to every payable and ETH-transferring function.",
+        "SEC-004": (
+            "Validate msg.value in payable functions:\n"
+            "        if (msg.value != _amount) revert InsufficientPayment(msg.value, _amount);"
+        ),
+        "SEC-005": (
+            "Add at least 2 onlyX modifiers:\n"
+            "        modifier onlyParties()    { if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized(); _; }\n"
+            "        modifier onlyArbitrator() { if (msg.sender != _arbitrator) revert Unauthorized(); _; }"
+        ),
+        "SEC-009": "Add `address private _arbitrator;` and initialise it in the constructor.",
+        "COV-001": (
+            "Add an external payable function:\n"
+            "        function pay() external payable onlyPartyA noReentrant {\n"
+            "            if (msg.value != _amount) revert InsufficientPayment(msg.value, _amount);\n"
+            "            emit PaymentMade(msg.sender, msg.value, block.timestamp);\n"
+            "        }"
+        ),
+        "COV-003": "Declare and emit a PaymentMade or PaymentReceived event in the payable function.",
+        "COV-010": (
+            "Add a calculatePenalty function that is NOT view:\n"
+            "        function calculatePenalty(uint256 principal, uint256 penaltyRateBps)\n"
+            "            external noReentrant returns (uint256 penaltyWei) {\n"
+            "            penaltyWei = (principal * penaltyRateBps) / 10_000;\n"
+            "            emit PenaltyCalculated(penaltyWei);\n"
+            "        }"
+        ),
+        "COV-020": (
+            "Store deadline as:\n"
+            "        uint256 private _deadline = block.timestamp + (N * 1 days);\n"
+            "        and check: if (block.timestamp > _deadline) revert DeadlinePassed(...);"
+        ),
+        "COV-021": "Add `function terminate() external onlyParties { ... emit ContractTerminated(...); }`.",
+        "COV-030": "Use `_state = ContractState.Active;` etc. for all state transitions.",
+        "COV-031": (
+            "Add `function acknowledgeDelivery() external onlyPartyA inState(ContractState.Active) {`\n"
+            "        that transitions to Completed and releases funds."
+        ),
+        "COV-040": (
+            "Add `function dispute() external onlyParties {`\n"
+            "        that sets `_state = ContractState.Disputed` and emits DisputeRaised."
+        ),
+        "COV-041": "Add `address private _arbitrator;` as a state variable and set it in constructor.",
+        "COV-042": "Add `event DisputeRaised(address indexed initiator, uint256 timestamp);` and emit it.",
+        "LEG-020": (
+            f"Add: `string public constant GOVERNING_LAW = \"{gov_word}\";`\n"
+            "        immediately after the EFFECTIVE_DATE constant."
+        ),
+        "LEG-030": (
+            f"Add: `uint256 public constant EFFECTIVE_DATE = {epoch};`\n"
+            "        and: `uint256 public immutable startDate;`\n"
+            "        then in constructor: `startDate = EFFECTIVE_DATE;`"
+        ),
+        "LEG-070": (
+            "Add:\n"
+            "        function getContractState() external view returns (\n"
+            "            address partyA_, address partyB_, address arbitrator_,\n"
+            "            uint8 state_, uint256 amount_, uint256 deadline_\n"
+            "        ) {\n"
+            "            return (_partyA, _partyB, _arbitrator, uint8(_state), _amount, _deadline);\n"
+            "        }"
+        ),
+        "LEG-080": "Add `function terminate() external onlyParties noReentrant { ... }`.",
+        "LEG-090": (
+            "Add `receive() external payable { emit PaymentReceived(msg.sender, msg.value); }`\n"
+            "        AND ensure at least one function has `external payable` modifiers."
+        ),
+    }
+
+    for test_id, hint in _HINT_MAP.items():
+        if test_id in ids:
+            hints.append(f"  [{test_id}] {hint}")
+
+    # Catch any test IDs not in the static map
+    unmapped = ids - set(_HINT_MAP.keys())
+    for tid in sorted(unmapped):
+        t = next((x for x in failed_tests if x.test_id == tid), None)
+        if t:
+            hints.append(f"  [{tid}] Fix: {t.description}. Detail: {t.detail}")
+
+    return hints

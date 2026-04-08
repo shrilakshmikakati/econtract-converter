@@ -1,0 +1,71 @@
+Warning: This declaration shadows an existing declaration.
+  --> Results/contract_10-bmc/contract_10.sol:39:51:
+   |
+39 |     constructor(address _partyA, address _partyB, address _arbitrator) {
+   |                                                   ^^^^^^^^^^^^^^^^^^^
+Note: The shadowed declaration is here:
+  --> Results/contract_10-bmc/contract_10.sol:17:5:
+   |
+17 |     address private _arbitrator;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+  --> Results/contract_10-bmc/contract_10.sol:21:66:
+   |
+21 |         if (msg.sender != partyA || msg.sender == partyB) revert Unauthorized();
+   |                                                                  ^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+  --> Results/contract_10-bmc/contract_10.sol:26:47:
+   |
+26 |         if (msg.sender != _arbitrator) revert Unauthorized();
+   |                                               ^^^^^^^^^^^^
+
+Error: Undeclared identifier. Did you mean "ContractState"?
+  --> Results/contract_10-bmc/contract_10.sol:52:13:
+   |
+52 |         if (contractState != ContractState.Active) revert Unauthorized();
+   |             ^^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+  --> Results/contract_10-bmc/contract_10.sol:52:59:
+   |
+52 |         if (contractState != ContractState.Active) revert Unauthorized();
+   |                                                           ^^^^^^^^^^^^
+
+Error: Undeclared identifier. Did you mean "ContractState"?
+  --> Results/contract_10-bmc/contract_10.sol:53:9:
+   |
+53 |         contractState = ContractState.Completed;
+   |         ^^^^^^^^^^^^^
+
+Error: Undeclared identifier. Did you mean "ContractState"?
+  --> Results/contract_10-bmc/contract_10.sol:64:9:
+   |
+64 |         contractState = ContractState.Terminated;
+   |         ^^^^^^^^^^^^^
+
+Error: Undeclared identifier. Did you mean "ContractState"?
+  --> Results/contract_10-bmc/contract_10.sol:69:16:
+   |
+69 |         return contractState;
+   |                ^^^^^^^^^^^^^
+
+Error: Undeclared identifier. Did you mean "ContractState"?
+  --> Results/contract_10-bmc/contract_10.sol:73:13:
+   |
+73 |         if (contractState != ContractState.Active) revert Unauthorized();
+   |             ^^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+  --> Results/contract_10-bmc/contract_10.sol:73:59:
+   |
+73 |         if (contractState != ContractState.Active) revert Unauthorized();
+   |                                                           ^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+  --> Results/contract_10-bmc/contract_10.sol:80:29:
+   |
+80 |         if (_locked) revert Unauthorized();
+   |                             ^^^^^^^^^^^^
+

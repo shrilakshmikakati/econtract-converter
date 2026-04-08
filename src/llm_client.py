@@ -248,6 +248,68 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
             "minimum 8 required — one per public/external function."
         )
 
+
+    # ── NEW: detect revert targets not declared as custom errors ──────────
+    reverted         = set(re.findall(r"\brevert\s+(\w+)\s*[;(]", code))
+    declared_errors  = set(re.findall(r"\berror\s+(\w+)\s*[;(]", code))
+    undeclared_reverts = reverted - declared_errors
+    if undeclared_reverts:
+        issues.append(
+            f"Undeclared custom error(s) used in revert: "
+            f"{', '.join(sorted(undeclared_reverts))}. "
+            "Declare each as: error Name(...);"
+        )
+
+    # ── NEW: detect emit targets not declared as events ───────────────────
+    emitted          = set(re.findall(r"\bemit\s+(\w+)\s*\(", code))
+    declared_events  = set(re.findall(r"\bevent\s+(\w+)\s*\(", code))
+    undeclared_emits = emitted - declared_events
+    if undeclared_emits:
+        issues.append(
+            f"Undeclared event(s) used in emit: "
+            f"{', '.join(sorted(undeclared_emits))}. "
+            "Declare each as: event Name(...);"
+        )
+
+    # ── NEW: noReentrant used but modifier body not declared ──────────────
+    if re.search(r"\bnoReentrant\b", code) and not re.search(r"modifier\s+noReentrant\s*\(", code):
+        issues.append(
+            "noReentrant modifier used in function signatures but not declared. "
+            "Add: modifier noReentrant() { if (_locked) revert ReentrantCall(); "
+            "_locked = true; _; _locked = false; }"
+        )
+
+    # ── NEW: party alias identifiers used but never declared ─────────────
+    _ALIASES = [
+        "parent", "acquisitionSub", "mergerSub", "buyer", "seller",
+        "employer", "employee", "licensor", "licensee", "lessor", "lessee",
+        "borrower", "lender", "partyA", "partyB", "party1", "party2",
+    ]
+    _decl_vars = set(re.findall(
+        r"^\s*(?:address|uint\d*|int\d*|bool|bytes\d*|string)\s+"
+        r"(?:payable\s+)?(?:private|public|internal)?\s*(?:immutable\s+|constant\s+)?(\w+)\s*[;=]",
+        code, re.MULTILINE,
+    ))
+    bad_aliases = [a for a in _ALIASES if re.search(rf"\b{a}\b", code) and a not in _decl_vars]
+    if bad_aliases:
+        issues.append(
+            f"Undeclared state variable(s) referenced: {', '.join(bad_aliases)}. "
+            "Use _partyA / _partyB / _arbitrator or declare them in the constructor."
+        )
+
+    # ── NEW: immutable initialised inline with a non-literal ─────────────
+    bad_imm = re.findall(
+        r"uint256\s+public\s+immutable\s+\w+\s*=\s*(?!\d)[A-Z_][A-Z_0-9]*\s*;",
+        code,
+    )
+    if bad_imm:
+        issues.append(
+            "Immutable variable(s) initialised inline with a constant name "
+            "(not an integer literal). Assign in constructor instead: "
+            "`uint256 public immutable x;` then in constructor: `x = CONST;`"
+        )
+
+
     return len(issues) == 0, issues
 
 
@@ -381,3 +443,135 @@ class LLMClient:
             return code, issues
 
         return code, []
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Feedback-loop constants
+# ═══════════════════════════════════════════════════════════════════════════
+
+MAX_FEEDBACK_ITERATIONS = 3   # Total refinement passes after the first generation
+ACCURACY_TARGET         = 100.0  # Desired overall accuracy %
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Feedback-loop method (added to LLMClient)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _generate_with_feedback(
+    self,
+    system: str,
+    user: str,
+    doc,                          # ContractDocument — imported lazily to avoid circular
+    max_iterations: int = MAX_FEEDBACK_ITERATIONS,
+    accuracy_target: float = ACCURACY_TARGET,
+) -> tuple[str, list[str], object]:
+    """
+    Generation + feedback loop.
+
+    Strategy
+    --------
+    1. Generate the contract (first pass).
+    2. Run postprocessor fixes (deterministic).
+    3. Run the full test-suite validator.
+    4. If accuracy < accuracy_target OR there are critical/major failures:
+         a. Build a targeted correction prompt (build_feedback_prompt).
+         b. Feed the FIXED code + failure details back to the LLM.
+         c. Re-apply postprocessor fixes.
+         d. Re-validate. Repeat up to max_iterations times.
+    5. Return the best code seen across all iterations.
+
+    Returns
+    -------
+    (best_solidity_code, validation_issues, validation_report)
+    """
+    from prompt_builder import build_feedback_prompt
+    from postprocessor  import apply_all_fixes, run_contract_validation
+    from llm_client     import extract_solidity, validate_solidity_output
+
+    best_code    : str   = ""
+    best_accuracy: float = -1.0
+    best_report          = None
+    best_issues : list[str] = []
+
+    current_system = system
+    current_user   = user
+
+    for iteration in range(1, max_iterations + 2):   # +2: first gen + N feedback passes
+        is_feedback_pass = iteration > 1
+        pass_label = "Initial generation" if not is_feedback_pass else f"Feedback pass {iteration - 1}/{max_iterations}"
+        logger.info(f"  ── {pass_label} ──")
+
+        # ── LLM call ────────────────────────────────────────────────────────
+        raw  = self._backend.generate(current_system, current_user)
+        code = extract_solidity(raw)
+
+        # ── Deterministic postprocessor ──────────────────────────────────────
+        code = apply_all_fixes(code, doc)
+
+        # ── Structural validation ────────────────────────────────────────────
+        struct_ok, struct_issues = validate_solidity_output(code)
+
+        # ── Full test-suite validation ────────────────────────────────────────
+        report = run_contract_validation(code, doc)
+
+        if report is not None:
+            accuracy = report.accuracy_overall
+            logger.info(
+                f"  Accuracy: {accuracy:.1f}%  "
+                f"({report.passed}/{report.total_tests} tests passed, "
+                f"{report.critical_failures} critical failures)"
+            )
+        else:
+            # No validator available — fall back to structural check
+            accuracy = 100.0 if struct_ok else 0.0
+            logger.info(f"  Structural validation: {'PASS' if struct_ok else 'FAIL'}")
+
+        # ── Track best result ────────────────────────────────────────────────
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_code     = code
+            best_report   = report
+            best_issues   = struct_issues
+
+        # ── Early exit if target reached ─────────────────────────────────────
+        all_struct_ok = len(struct_issues) == 0
+        no_crits      = (report is None or report.critical_failures == 0)
+        target_met    = accuracy >= accuracy_target and all_struct_ok and no_crits
+
+        if target_met:
+            logger.info(f"  ✓ Target accuracy {accuracy_target}% reached — stopping feedback loop.")
+            break
+
+        # ── Check if we have more iterations left ─────────────────────────────
+        if iteration >= max_iterations + 1:
+            logger.info(
+                f"  Max iterations ({max_iterations}) exhausted. "
+                f"Best accuracy: {best_accuracy:.1f}%"
+            )
+            break
+
+        # ── Build feedback prompt ────────────────────────────────────────────
+        failed_tests = [r for r in report.results if not r.passed] if report else []
+
+        logger.info(
+            f"  Accuracy {accuracy:.1f}% < {accuracy_target}% — "
+            f"building feedback prompt ({len(failed_tests)} failed tests, "
+            f"{len(struct_issues)} structural issues)."
+        )
+
+        feedback_user = build_feedback_prompt(
+            solidity_code    = code,        # use the already-fixed code
+            doc              = doc,
+            failed_tests     = failed_tests,
+            validation_issues= struct_issues,
+            attempt          = iteration,
+            max_attempts     = max_iterations,
+        )
+
+        # The system prompt stays the same; only the user prompt changes.
+        current_user = feedback_user
+
+    return best_code, best_issues, best_report
+
+
+# Bind the method onto LLMClient so it's accessible as self.generate_with_feedback(...)
+LLMClient.generate_with_feedback = _generate_with_feedback
