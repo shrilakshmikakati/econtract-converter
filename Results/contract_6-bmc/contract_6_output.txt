@@ -1,6 +1,0 @@
-Error: Initial value for constant variable has to be compile-time constant.
-  --> Results/contract_6-bmc/contract_6.sol:26:46:
-   |
-26 |     uint256 public constant EFFECTIVE_DATE = block.timestamp + 30;
-   |                                              ^^^^^^^^^^^^^^^^^^^^
-

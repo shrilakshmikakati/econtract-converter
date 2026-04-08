@@ -1,45 +1,42 @@
 {
-  "conversion_timestamp": "2026-04-07T07:07:45Z",
-  "elapsed_seconds": 597.06,
-  "source_file": "/mnt/d/TRUSTINN/econtract-converter/contract_6.txt",
-  "output_file": "/mnt/d/TRUSTINN/econtract-converter/Results/contract_6/contract_6.sol",
-  "contract_title": "Execution Version",
+  "conversion_timestamp": "2026-04-08T05:23:59Z",
+  "elapsed_seconds": 553.16,
+  "source_file": "/mnt/d/TRUSTINN/econtract-converter/contract_90.txt",
+  "output_file": "/mnt/d/TRUSTINN/econtract-converter/Results/contract_90/contract_90.sol",
+  "contract_title": "Agreement And Plan Of Merger",
   "parties": [
     {
-      "role": "Glacier Bank",
-      "name": "GLACIER BANK",
+      "role": "Parent",
+      "name": "Massachusetts corporation",
       "wallet": null
     },
     {
-      "role": "AB",
-      "name": "ALTABANCORP",
+      "role": "Acquisition Sub",
+      "name": "Delaware corporation and a wholly owned subsidiary of Parent",
       "wallet": null
     }
   ],
-  "clauses_extracted": 54,
-  "effective_date": "MAY 18, 2021",
-  "expiry_date": "February 28, 2022",
-  "governing_law": "and construed in accordance with the Laws of the State of Montana",
-  "char_count": 215210,
+  "clauses_extracted": 63,
+  "effective_date": "July 12, 2020",
+  "expiry_date": "June 27, 2020",
+  "governing_law": null,
+  "char_count": 356160,
   "validation_issues": [
-    "No constructor defined",
-    "No events defined",
-    "Events defined but never emitted",
-    "No error handling (revert/require)"
+    "SOL-013: Only 1 `/// @notice` NatSpec comments found; minimum 8 required \u2014 one per public/external function."
   ],
   "validation_passed": false,
   "accuracy": {
-    "overall": 61.6,
-    "solidity": 71.0,
-    "security": 30.8,
-    "legal": 42.9,
-    "coverage": 72.7
+    "overall": 82.7,
+    "solidity": 84.8,
+    "security": 72.2,
+    "legal": 87.5,
+    "coverage": 86.4
   },
   "test_suite": {
-    "total_tests": 40,
-    "passed": 25,
-    "failed": 15,
-    "critical_failures": 2,
+    "total_tests": 43,
+    "passed": 35,
+    "failed": 8,
+    "critical_failures": 1,
     "results": [
       {
         "test_id": "SOL-001",
@@ -69,7 +66,7 @@
         "test_id": "SOL-004",
         "category": "solidity",
         "description": "Constructor defined",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -79,15 +76,15 @@
         "description": "At least 3 events declared",
         "passed": false,
         "severity": "major",
-        "detail": "Found 0 event(s)"
+        "detail": "Found 2 event(s)"
       },
       {
         "test_id": "SOL-006",
         "category": "solidity",
         "description": "Events are emitted (emit statements)",
-        "passed": false,
+        "passed": true,
         "severity": "major",
-        "detail": "Found 0 emit(s)"
+        "detail": "Found 5 emit(s)"
       },
       {
         "test_id": "SOL-007",
@@ -95,7 +92,7 @@
         "description": "Uses custom errors instead of require() strings",
         "passed": false,
         "severity": "major",
-        "detail": "custom errors=0, require-strings=0"
+        "detail": "custom errors=0, require-strings=0, require-bare=0"
       },
       {
         "test_id": "SOL-008",
@@ -135,12 +132,12 @@
         "description": "Balanced braces (code not truncated)",
         "passed": true,
         "severity": "critical",
-        "detail": "open=6 close=6"
+        "detail": "open=12 close=12"
       },
       {
         "test_id": "SOL-013",
         "category": "solidity",
-        "description": "NatSpec (@notice) present on functions",
+        "description": "NatSpec (@notice) present on functions (\u22658)",
         "passed": false,
         "severity": "minor",
         "detail": "Found 1 @notice comments"
@@ -162,10 +159,18 @@
         "detail": "State machine enums add auditability"
       },
       {
+        "test_id": "SOL-016",
+        "category": "solidity",
+        "description": "calculatePenalty() is NOT marked view (it emits events)",
+        "passed": true,
+        "severity": "major",
+        "detail": "view functions cannot emit events \u2014 compile error"
+      },
+      {
         "test_id": "SEC-001",
         "category": "security",
-        "description": "Reentrancy guard bool flag (_locked) declared",
-        "passed": false,
+        "description": "Reentrancy guard bool flag (_locked) declared at contract scope",
+        "passed": true,
         "severity": "critical",
         "detail": ""
       },
@@ -178,12 +183,28 @@
         "detail": ""
       },
       {
-        "test_id": "SEC-005",
+        "test_id": "SEC-003",
         "category": "security",
-        "description": "Access control modifiers present",
+        "description": "noReentrant applied to payable functions",
+        "passed": true,
+        "severity": "critical",
+        "detail": "Payable functions: ['depositPayment']"
+      },
+      {
+        "test_id": "SEC-004",
+        "category": "security",
+        "description": "msg.value validated in payable functions",
         "passed": false,
         "severity": "major",
-        "detail": "Found 0 onlyX modifiers"
+        "detail": ""
+      },
+      {
+        "test_id": "SEC-005",
+        "category": "security",
+        "description": "Access control modifiers present (\u22652 onlyX)",
+        "passed": true,
+        "severity": "major",
+        "detail": "Found 2 onlyX modifiers"
       },
       {
         "test_id": "SEC-006",
@@ -213,7 +234,7 @@
         "test_id": "SEC-009",
         "category": "security",
         "description": "Arbitrator address declared as state variable",
-        "passed": false,
+        "passed": true,
         "severity": "minor",
         "detail": ""
       },
@@ -229,7 +250,7 @@
         "test_id": "COV-003",
         "category": "coverage",
         "description": "Payment event emitted",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -245,7 +266,7 @@
         "test_id": "COV-020",
         "category": "coverage",
         "description": "Expiry/deadline stored as block.timestamp or uint deadline",
-        "passed": true,
+        "passed": false,
         "severity": "major",
         "detail": ""
       },
@@ -253,7 +274,7 @@
         "test_id": "COV-021",
         "category": "coverage",
         "description": "Termination function present",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -261,7 +282,7 @@
         "test_id": "COV-030",
         "category": "coverage",
         "description": "State machine transitions for obligations",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -279,29 +300,29 @@
         "description": "Contract name reflects eContract title",
         "passed": true,
         "severity": "minor",
-        "detail": "Title words found: 2/2: ['execution', 'version']"
-      },
-      {
-        "test_id": "LEG-020",
-        "category": "legal",
-        "description": "Governing law (and construed in accordance with the Laws of the State of Montana) acknowledged",
-        "passed": true,
-        "severity": "info",
-        "detail": "Checked keywords: ['construed', 'accordance', 'with', 'laws', 'state', 'montana']"
+        "detail": "Title words found: 3/3: ['agreement', 'plan', 'merger']"
       },
       {
         "test_id": "LEG-030",
         "category": "legal",
         "description": "Effective/start date encoded (as timestamp or comment)",
-        "passed": false,
+        "passed": true,
         "severity": "info",
-        "detail": "Effective date: MAY 18, 2021"
+        "detail": "Effective date: July 12, 2020"
+      },
+      {
+        "test_id": "LEG-050-5",
+        "category": "legal",
+        "description": "Penalty deadline (30 days) encoded",
+        "passed": false,
+        "severity": "minor",
+        "detail": "Penalty clause: Additional Conditions Precedent to the Company's Obligations. The obligation of the Company to effect the Merger and otherwise consummate the transactions contemplated by this Agreement is subject to the satisfaction or waiver, at or prior to the Closing, of each of the following conditions:"
       },
       {
         "test_id": "LEG-070",
         "category": "legal",
         "description": "getContractState() view function present",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -309,7 +330,7 @@
         "test_id": "LEG-080",
         "category": "legal",
         "description": "terminate() function present",
-        "passed": false,
+        "passed": true,
         "severity": "major",
         "detail": ""
       },
@@ -327,41 +348,41 @@
         "description": "Clause 'Preamble' [general] encoded on-chain",
         "passed": true,
         "severity": "minor",
-        "detail": "Keywords matched 1/2: ['contract\\\\s+\\\\w+', 'constructor']"
-      },
-      {
-        "test_id": "CLS-PAYMEN",
-        "category": "coverage",
-        "description": "Clause 'ALTABANCORP AND ALTABANK' [payment] encoded on-chain",
-        "passed": true,
-        "severity": "major",
-        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay']"
-      },
-      {
-        "test_id": "CLS-EXPIRY",
-        "category": "coverage",
-        "description": "Clause 'PREAMBLE' [expiry] encoded on-chain",
-        "passed": true,
-        "severity": "minor",
-        "detail": "Keywords matched 1/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
-      },
-      {
-        "test_id": "CLS-PENALT",
-        "category": "coverage",
-        "description": "Clause 'Effective Date. The Merger shall be consummated at the Effective Time by the filing with and acceptance by the Montana Secretary of State and the Utah Division of Corporations of Articles of Merger, in the form required by and executed in accordance with the relevant provisions of the MBCA and UBCA (together, the \"Articles of Merger\"). The Effective Time will be the time specified in the Articles of Merger filed with the Montana Secretary of State and the Utah Division of Corporations, unless no time is specified in the Articles of Merger in which case it shall be the time that the filing is accepted. At the Closing, the parties shall cause the Articles of Merger to be filed with the Montana Secretary of State and the Utah Division of Corporations in accordance with the relevant provisions of the MBCA and the UBCA. 2.2 Events of Closing. Subject to the terms and conditions of this Agreement, unless otherwise agreed by the parties, the Merger shall be effective as of the last Business Day of the month occurring not less than five Business Days after fulfillment or waiver of each condition precedent set forth in, and the granting of each approval (and expiration of any waiting period) covered by Article 5 (other than those conditions or approvals that by their nature are to be satisfied by action taken at the Closing) (the \"Condition Satisfaction\"); provided, that (a) GBCI shall not be required to consummate the Transactions before October 31, 2021, or at fiscal year-end 2021 and (b) if the Outside Date is less than five Business Days after the Condition Satisfaction, then the Closing shall occur and be effective one Business Day prior to the Outside Date; provided further, that if the Closing would occur as of a quarter-end (but not fiscal year-end), then the Closing will occur and be effective on the first Business Day of the new quarter. At or prior to the Closing, all properly executed documents required by this Agreement will be delivered to the proper party, in form consistent with this Agreement. If any party fails to deliver a required document at the Closing or otherwise defaults under this Agreement prior to the Closing, then the Closing and the Merger will not occur unless the adversely affected party waives the default. In the event that the Condition Satisfaction occurs between November 24, 2021 and December 22, 2021, AB shall be deemed to have satisfied and/or GBCI shall for all purposes be deemed to have irrevocably and completely waived to the fullest extent permitted by applicable Law the conditions precedent set forth in Section 5.2.1 (except as relates to the representations and warranties referenced in clauses (a) and (b) of Section 5.2.1), Section 5.2.2 (except insofar as it relates to covenants required to be performed from and after the date of the Condition Satisfaction), Section 5.2.7 and Section 5.2.8, effective as of 11:59 p.m. Mountain Time on December 31, 2021. 2.3 Manner and Time of Closing. The Closing will take place remotely via the electronic exchange of documents and signatures on such date as the parties may reasonably agree, at 10:00 a.m. Mountain Time, or such other time as the parties agree.' [penalty] encoded on-chain",
-        "passed": true,
-        "severity": "major",
-        "detail": "Keywords matched 2/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei']"
+        "detail": "Keywords matched 2/2: ['contract\\\\s+\\\\w+', 'constructor']"
       },
       {
         "test_id": "CLS-OBLIGA",
         "category": "coverage",
-        "description": "Clause 'Representations and Warranties of AB and the Bank. Each of AB and the Bank represents and warrants to GBCI and Glacier Bank that, except (a) as set forth in the AB SEC Reports prior to the   -14-' [obligation] encoded on-chain",
+        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [obligation] encoded on-chain",
         "passed": true,
         "severity": "minor",
         "detail": "Keywords matched 2/3: ['_state\\\\s*=', 'Completed|Active|Created', 'deliver|Deliver']"
+      },
+      {
+        "test_id": "CLS-EXPIRY",
+        "category": "coverage",
+        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [expiry] encoded on-chain",
+        "passed": false,
+        "severity": "minor",
+        "detail": "Keywords matched 0/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
+      },
+      {
+        "test_id": "CLS-PAYMEN",
+        "category": "coverage",
+        "description": "Clause 'Options; Stock Based Awards. (a)    Effective as of the Effective Time, each Company Option that is outstanding and unexercised, whether vested or unvested, immediately prior to the Effective Time (each, an \"Outstanding Company Option\") shall cease to represent a right to acquire shares of Company Common Stock and shall be converted automatically into a Parent Option on the same terms and conditions (including applicable vesting, exercise and expiration provisions) as applied to such Outstanding Company Option immediately prior to the Effective Time, except that: (i) the number of shares of Parent Common Stock subject to each assumed Outstanding Company Option shall be determined by multiplying: (A) the number of shares of Company Common Stock subject to such Outstanding Company Option immediately prior to the Effective Time; by (B) the Exchange Ratio, and rounding such product down to the nearest whole share; and (ii) the per share exercise price for the shares of Parent Common Stock issuable upon exercise of each assumed Outstanding Company Option shall be determined by dividing: (A) the per share exercise price for the shares of Company Common Stock otherwise purchasable pursuant to such Outstanding Company Option immediately prior to the Effective Time; by (B) the Exchange Ratio, and rounding such quotient up to the nearest whole cent (it being understood that any Outstanding Company Option that is so converted into a Parent Option in accordance with this Section 1.7(a) shall, from and after the Effective Time, be subject to the applicable Change in Control Plan).   3' [payment] encoded on-chain",
+        "passed": true,
+        "severity": "major",
+        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay|depositPayment']"
+      },
+      {
+        "test_id": "CLS-PENALT",
+        "category": "coverage",
+        "description": "Clause 'Non-Contravention; Consents. (a)    The execution and delivery of this Agreement by the Company and, assuming receipt of the Required Company Stockholder Vote, the consummation by the Company of the Merger will not: (i) cause a violation of any of the provisions of the Organizational Documents of the Company or any Company Subsidiary; (ii) assuming the consents and filings referred to in Section 2.19(b) are made and obtained, conflict with or violate any applicable Legal Requirements; or (iii) subject to Section 4.7, result in any loss, limitation or impairment of any right of the Company or any Company Subsidiary to own or use any assets, result in any violation of or default (with or without notice or lapse of time, or both) under, or give rise to a right of termination, cancellation, first offer, first refusal, modification or acceleration of any obligation or to the loss of a benefit under any contract, loan, indebtedness, mortgage, lease, agreement, instrument, permit, franchise, right or license binding upon the Company or any Company Subsidiary or by which any of their respective properties, rights or assets are bound or subject, or result in the creation of any Liens of any kind (other than Company Permitted Encumbrances) upon any of the properties, rights or assets of the Company or any Company Subsidiary, except, in the cases of clauses \"(ii)\" and \"(iii),\" as would not, individually or in the aggregate, reasonably be expected to constitute or result in a Company Material Adverse Effect or to prevent, materially delay or materially impair the ability of the Company to perform its obligations under this Agreement or to consummate the Merger.' [penalty] encoded on-chain",
+        "passed": true,
+        "severity": "major",
+        "detail": "Keywords matched 1/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
       }
     ]
   },
-  "test_summary": "Validation: 25/40 passed | Accuracy: 61.6% | Critical failures: 2 | Critical: SEC-001, SEC-002"
+  "test_summary": "Validation: 35/43 passed | Accuracy: 82.7% | Critical failures: 1 | Critical: SEC-002"
 }
