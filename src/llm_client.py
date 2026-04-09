@@ -249,7 +249,44 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
         )
 
 
-    # ── NEW: detect revert targets not declared as custom errors ──────────
+    # ── NEW: detect malformed if-revert hybrid left by bad require conversion ──
+    # Signature: `) revert Name()` appearing inside an expression (not as a
+    # standalone statement), e.g.:
+    #   if (!(partyA == address(0)) revert Unauthorized() && partyB == ...)
+    # This is produced when the naive require-regex truncated on the first `)`
+    # inside a nested call like address(0) and left the rest dangling.
+    bad_revert_inside_expr = re.findall(
+        r'\)\s+revert\s+\w+\s*\([^)]*\)\s*(?:&&|\|\||,)',
+        code,
+    )
+    if bad_revert_inside_expr:
+        issues.append(
+            f"Malformed if-revert syntax ({len(bad_revert_inside_expr)} occurrence(s)): "
+            "`revert` found inside a condition expression (e.g. `...) revert Err() && ...`). "
+            "This is a compile error. Each guard must be a standalone statement: "
+            "`if (!condition) revert Error();`  "
+            "For compound conditions use: `if (a != X || b != Y) revert Unauthorized();`"
+        )
+
+    # ── NEW: detect bare `locked` (without underscore) used as reentrancy flag ─
+    bare_locked = re.findall(r'(?<!_)\blocked\b', code)
+    # Filter out occurrences that are inside string literals or comments
+    bare_locked = [b for b in bare_locked if b]
+    if bare_locked:
+        issues.append(
+            f"Bare `locked` used ({len(bare_locked)} time(s)) instead of `_locked`. "
+            "The reentrancy flag must be `bool private _locked;` — replace all `locked` "
+            "references with `_locked`."
+        )
+
+    # ── NEW: detect uint256 contractState type mismatch ─────────────────────
+    if re.search(r'\buint256\b\s+(?:public|private|internal)?\s*contractState\s*[=;]', code):
+        issues.append(
+            "Type mismatch: `uint256 contractState` declared but assigned a `ContractState` enum value. "
+            "Use `ContractState public contractState;` instead."
+        )
+
+
     reverted         = set(re.findall(r"\brevert\s+(\w+)\s*[;(]", code))
     declared_errors  = set(re.findall(r"\berror\s+(\w+)\s*[;(]", code))
     undeclared_reverts = reverted - declared_errors
@@ -552,6 +589,24 @@ def _generate_with_feedback(
         # ── Build feedback prompt ────────────────────────────────────────────
         failed_tests = [r for r in report.results if not r.passed] if report else []
 
+        # Attach the exact source lines that contain structural errors so the
+        # LLM can identify and fix them precisely rather than guessing.
+        annotated_issues: list[str] = list(struct_issues)
+        if struct_issues:
+            code_lines = code.splitlines()
+            for issue in struct_issues:
+                # Extract any quoted identifiers / keywords from the issue text
+                keywords = re.findall(r'`([^`]+)`', issue)
+                for kw in keywords:
+                    for lineno, ln in enumerate(code_lines, 1):
+                        if kw in ln and lineno not in [
+                            int(x) for x in re.findall(r'\bline (\d+)\b', issue)
+                        ]:
+                            annotated_issues.append(
+                                f"  → line {lineno}: {ln.strip()}"
+                            )
+                            break   # one example per keyword is enough
+
         logger.info(
             f"  Accuracy {accuracy:.1f}% < {accuracy_target}% — "
             f"building feedback prompt ({len(failed_tests)} failed tests, "
@@ -562,7 +617,7 @@ def _generate_with_feedback(
             solidity_code    = code,        # use the already-fixed code
             doc              = doc,
             failed_tests     = failed_tests,
-            validation_issues= struct_issues,
+            validation_issues= annotated_issues,   # includes exact broken lines
             attempt          = iteration,
             max_attempts     = max_iterations,
         )

@@ -6,6 +6,8 @@
 echo "========================================"
 echo " E-Contract → Solidity Converter"
 echo "========================================"
+
+echo "Conversion may take 8-10 minutes depending on the size of the input file. Please wait..." 
 # Check input argument
 if [ -z "$1" ]; then
     echo "Usage: ./convert.sh <econtract.txt>"

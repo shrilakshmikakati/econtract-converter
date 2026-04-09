@@ -140,10 +140,34 @@ MANDATORY SOLIDITY 0.8.16 RULES — follow EVERY rule, no exceptions:
     modifier onlyParties()    { if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized(); _; }
     modifier onlyArbitrator() { if (msg.sender != _arbitrator) revert Unauthorized(); _; }
 
-27. calculatePenalty() MUST NOT be view — it emits PenaltyCalculated.
-    Accept principal as a uint256 parameter — do NOT read msg.value inside it:
-        function calculatePenalty(uint256 principal, uint256 penaltyRateBps)
-            external noReentrant returns (uint256 penaltyWei) { ... emit PenaltyCalculated(...); }
+28. CUSTOM ERROR DECLARATIONS — ABSOLUTE RULE:
+    EVERY `revert X()` MUST have a matching `error X(...);` declaration inside
+    the contract. The most commonly forgotten ones are:
+        error Unauthorized();
+        error ReentrantCall();
+        error InvalidState(uint8 current, uint8 required);
+        error InsufficientPayment(uint256 sent, uint256 required);
+        error DeadlinePassed(uint256 deadline, uint256 current);
+        error AlreadyDisputed();
+    Declare ALL of them at the top of the contract body even if you are not
+    sure whether they will be used. Missing error declarations are compile errors.
+
+29. MODIFIER REFERENCES — ABSOLUTE RULE:
+    Access-control modifiers MUST ONLY reference state variables that are
+    declared in the same contract. ALWAYS use `_partyA`, `_partyB`,
+    `_arbitrator` in modifier bodies. NEVER use undeclared names like
+    `company`, `parent`, `acquisitionSub`, `buyer`, `seller`, etc.:
+        WRONG: if (msg.sender != parent || msg.sender == acquisitionSub) revert ...
+        RIGHT: if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized();
+    If the contract involves a merger or acquisition, still map the parties to
+    `_partyA` (acquirer/parent) and `_partyB` (target/company) in the constructor.
+
+30. IMMUTABLE VARIABLES — ABSOLUTE RULE:
+    `immutable` variables CANNOT be assigned an expression inline at declaration.
+        WRONG: uint256 public immutable startDate = EFFECTIVE_DATE;
+        RIGHT: uint256 public immutable startDate;
+               // then inside constructor:
+               startDate = EFFECTIVE_DATE;
 """
 
 SOLIDITY_TEMPLATE_HINTS = """
@@ -363,6 +387,29 @@ OUTPUT FORMAT:
   (12) calculatePenalty() is NOT view, uses uint256 param not msg.value → verify
   (13) GOVERNING_LAW string constant present → verify
   (14) `startDate` immutable declared and set in constructor → verify
+  (15) CRITICAL: Every `revert X()` used in the code MUST have a matching
+       `error X(...);` declared at the top of the contract body. Scan every
+       `revert` keyword and confirm its error name is declared.
+       NEVER use `revert Unauthorized()` without `error Unauthorized();`.
+  (16) CRITICAL: If `noReentrant` is used in any function signature, the
+       `modifier noReentrant()` body MUST be declared inside the contract.
+       The pattern is ALWAYS:
+           modifier noReentrant() {{
+               if (_locked) revert ReentrantCall();
+               _locked = true;
+               _;
+               _locked = false;
+           }}
+       Do NOT use `noReentrant` without this modifier body present.
+  (17) CRITICAL: `uint256 public immutable startDate` MUST NOT be assigned
+       inline. WRONG: `uint256 public immutable startDate = EFFECTIVE_DATE;`
+       RIGHT: declare as `uint256 public immutable startDate;` then in the
+       constructor body: `startDate = EFFECTIVE_DATE;`
+  (18) CRITICAL: Every variable referenced in modifier bodies and function
+       bodies MUST be declared as a state variable. Do NOT reference `company`,
+       `parent`, `acquisitionSub`, `buyer`, `seller` or any other name in a
+       modifier unless it is declared as `address private _partyA;` or similar.
+       Only use `_partyA`, `_partyB`, `_arbitrator` in access-control modifiers.
   Fix ALL issues before outputting.
 
 {SOLIDITY_TEMPLATE_HINTS}
@@ -899,5 +946,24 @@ def _derive_fix_hints(
         t = next((x for x in failed_tests if x.test_id == tid), None)
         if t:
             hints.append(f"  [{tid}] Fix: {t.description}. Detail: {t.detail}")
+
+    for issue in validation_issues:
+        if "Malformed if-revert" in issue:
+            hints.append(
+                "  [SYNTAX] Malformed if-revert detected. NEVER write:\n"
+                "        if (!(a == x)) revert Err() && b == y, \"msg\";\n"
+                "    ALWAYS write separate statements:\n"
+                "        if (a != x || b != y) revert Unauthorized();"
+            )
+        elif "Bare `locked`" in issue:
+            hints.append(
+                "  [SYNTAX] Replace every bare `locked` with `_locked` to match the "
+                "state variable `bool private _locked;`."
+            )
+        elif "uint256 contractState" in issue:
+            hints.append(
+                "  [TYPE] Change `uint256 public contractState` to "
+                "`ContractState public contractState` to match the enum type."
+            )
 
     return hints

@@ -221,17 +221,30 @@ def _fix_start_date(code: str) -> str:
     they must be assigned in the constructor.
     """
     # Repair inline initialisation: immutable startDate = EFFECTIVE_DATE;
+    # Strip the RHS so it becomes `uint256 public immutable startDate;`
+    inline_fixed = bool(re.search(
+        r"uint256\s+public\s+immutable\s+startDate\s*=\s*EFFECTIVE_DATE\s*;",
+        code,
+    ))
     code = re.sub(
         r"(uint256\s+public\s+immutable\s+startDate)\s*=\s*EFFECTIVE_DATE\s*;",
         r"\1;",
         code,
     )
-    if re.search(r"\bstartDate\b", code) or re.search(r"\beffectiveDate\b", code):
-        # Ensure constructor assignment exists
-        if "startDate" in code and "startDate = EFFECTIVE_DATE" not in code:
+
+    has_start_date = bool(re.search(r"\bstartDate\b", code))
+    has_effective_date = bool(re.search(r"\beffectiveDate\b", code))
+
+    if has_start_date or has_effective_date:
+        # Ensure constructor assignment exists (needed after stripping inline init)
+        if has_start_date and "startDate = EFFECTIVE_DATE" not in code:
             ctor = re.search(r"constructor\s*\([^)]*\)[^{]*\{", code)
             if ctor:
-                code = code[:ctor.end()] + "\n        startDate = EFFECTIVE_DATE;" + code[ctor.end():]
+                code = (
+                    code[: ctor.end()]
+                    + "\n        startDate = EFFECTIVE_DATE;"
+                    + code[ctor.end():]
+                )
         return code
 
     if "EFFECTIVE_DATE" not in code:
@@ -240,48 +253,364 @@ def _fix_start_date(code: str) -> str:
     decl = "    uint256 public immutable startDate;\n"
     m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
     if m:
-        code = code[:m.end()] + decl + code[m.end():]
+        code = code[: m.end()] + decl + code[m.end():]
 
     ctor = re.search(r"constructor\s*\([^)]*\)[^{]*\{", code)
     if ctor:
-        code = code[:ctor.end()] + "\n        startDate = EFFECTIVE_DATE;" + code[ctor.end():]
+        code = (
+            code[: ctor.end()]
+            + "\n        startDate = EFFECTIVE_DATE;"
+            + code[ctor.end():]
+        )
     return code
 
 
-def _fix_require_to_custom_errors(code: str) -> str:
-    """Convert any remaining require() calls to custom-error pattern."""
-    def _replace_require(m: re.Match) -> str:
-        condition = m.group(1).strip()
-        if condition.startswith("!"):
-            neg = condition[1:].strip()
-        elif "==" in condition:
-            neg = condition.replace("==", "!=", 1)
-        elif "!=" in condition:
-            neg = condition.replace("!=", "==", 1)
-        elif ">=" in condition:
-            neg = condition.replace(">=", "<", 1)
-        elif "<=" in condition:
-            neg = condition.replace("<=", ">", 1)
-        elif ">" in condition:
-            neg = condition.replace(">", "<=", 1)
-        elif "<" in condition:
-            neg = condition.replace("<", ">=", 1)
-        else:
-            neg = f"!({condition})"
-        return f"if ({neg}) revert Unauthorized()"
+def _parse_require_args(src: str, start: int) -> tuple[str, str] | None:
+    """
+    Parse the arguments of a require(...) call starting at `start` (the index
+    of the opening parenthesis).  Returns (condition, message) or None if the
+    call cannot be parsed.  Correctly handles nested parentheses such as
+    address(0), keccak256(...), etc.
+    """
+    depth = 0
+    i = start
+    n = len(src)
+    parts: list[str] = []
+    seg_start = start + 1  # skip the opening '('
 
-    code = re.sub(r'require\s*\(\s*([^,)]+)\s*,\s*"[^"]*"\s*\)', _replace_require, code)
+    while i < n:
+        c = src[i]
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                parts.append(src[seg_start:i])
+                break
+        elif c == ',' and depth == 1:
+            parts.append(src[seg_start:i])
+            seg_start = i + 1
+        i += 1
+
+    if not parts:
+        return None
+
+    condition = parts[0].strip()
+    message   = parts[1].strip().strip('"\'') if len(parts) > 1 else ""
+    return condition, message
+
+
+def _negate_condition(condition: str) -> str:
+    """
+    Return the logical negation of a Solidity boolean expression.
+
+    Simple atomic conditions are inverted by flipping the operator.
+    Compound conditions (containing && or || at the top level, i.e. not
+    inside nested parentheses) are wrapped in !(…) to avoid incorrectly
+    dropping terms.
+    """
+    stripped = condition.strip()
+
+    # Check for top-level && or || (not inside nested parens)
+    depth = 0
+    for ch in stripped:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif depth == 0 and stripped[stripped.index(ch):].startswith(('&&', '||')):
+            # Compound condition — wrap the whole thing
+            return f"!({stripped})"
+
+    # Remove a single wrapping pair of parens if present
+    while stripped.startswith("(") and stripped.endswith(")"):
+        # Verify the parens are actually matching
+        depth2 = 0
+        for i, ch in enumerate(stripped):
+            if ch == '(':
+                depth2 += 1
+            elif ch == ')':
+                depth2 -= 1
+                if depth2 == 0 and i < len(stripped) - 1:
+                    break  # closing paren is not the last char → don't strip
+        else:
+            stripped = stripped[1:-1].strip()
+            continue
+        break
+
+    if stripped.startswith("!"):
+        inner = stripped[1:].strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1].strip()
+        return inner
+    if " == " in stripped:
+        return stripped.replace(" == ", " != ", 1)
+    if " != " in stripped:
+        return stripped.replace(" != ", " == ", 1)
+    if " >= " in stripped:
+        return stripped.replace(" >= ", " < ", 1)
+    if " <= " in stripped:
+        return stripped.replace(" <= ", " > ", 1)
+    if " > " in stripped:
+        return stripped.replace(" > ", " <= ", 1)
+    if " < " in stripped:
+        return stripped.replace(" < ", " >= ", 1)
+    return f"!({stripped})"
+
+
+def _fix_require_to_custom_errors(code: str) -> str:
+    """
+    Convert ALL remaining require() calls to the custom-error pattern.
+
+    Uses a parenthesis-depth-aware parser instead of a naive [^,)] regex so
+    that nested calls like address(0), keccak256(...), abi.encode(...) are
+    handled correctly and never produce malformed output such as:
+        if (!(partyA == address(0)) revert Unauthorized() && partyB == address(0), ...)
+    """
+    result = []
+    i = 0
+    n = len(code)
+
+    while i < n:
+        # Look for `require` as a whole word
+        m = re.search(r'\brequire\s*\(', code[i:])
+        if not m:
+            result.append(code[i:])
+            break
+
+        # Append everything up to (and including) the chars before `require`
+        pre_start = i + m.start()
+        result.append(code[i:pre_start])
+
+        paren_open = i + m.end() - 1  # index of the '(' in require(
+        parsed = _parse_require_args(code, paren_open)
+
+        if parsed is None:
+            # Cannot parse — emit as-is and advance past the keyword
+            result.append(code[pre_start: i + m.end()])
+            i = i + m.end()
+            continue
+
+        condition, _message = parsed
+        neg = _negate_condition(condition)
+        result.append(f"if ({neg}) revert Unauthorized()")
+
+        # Advance past the closing ')' of the require(...)
+        depth = 0
+        j = paren_open
+        while j < n:
+            if code[j] == '(':
+                depth += 1
+            elif code[j] == ')':
+                depth -= 1
+                if depth == 0:
+                    j += 1
+                    break
+            j += 1
+        i = j
+
+    return "".join(result)
+
+
+def _fix_bare_locked(code: str) -> str:
+    """
+    The LLM sometimes uses bare `locked` (without underscore) inside
+    receive() and modifier bodies instead of `_locked`.
+    Replace every whole-word `locked` that is NOT already preceded by `_`
+    with `_locked`, but ONLY if `bool private _locked` is declared (or will
+    be injected) — so we don't rename unrelated variables.
+    """
+    # Only act when the canonical declaration is present (or will be injected)
+    if not re.search(r"\bbool\b[^;]+\b_locked\b", code) and "bool private _locked" not in code:
+        return code
+    # Replace `locked` that is not preceded by `_`
+    code = re.sub(r'(?<!_)\blocked\b', '_locked', code)
+    return code
+
+
+def _fix_contractstate_type(code: str) -> str:
+    """
+    The LLM sometimes declares `uint256 public contractState = ContractState.Created;`
+    which is a type-mismatch compile error.  Rewrite to use the enum type.
+    """
+    # uint256 [visibility] contractState = ContractState.xxx  →  ContractState [visibility] contractState
     code = re.sub(
-        r'require\s*\(\s*([^,)]+)\s*\)',
-        lambda m: f"if (!({m.group(1).strip()})) revert Unauthorized()",
+        r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*=\s*ContractState\.)',
+        r'ContractState\1\2',
+        code,
+    )
+    # Also catch: uint256 contractState; with no initialiser then assigned ContractState.xxx
+    code = re.sub(
+        r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*;)',
+        r'ContractState\1\2',
         code,
     )
     return code
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  NEW FIX-12: Ensure all revert targets are declared as custom errors
-# ═══════════════════════════════════════════════════════════════════════════
+def _fix_msg_value_validation(code: str) -> str:
+    """
+    SEC-004: ensure every external payable function validates msg.value.
+    If a payable function body contains no `msg.value` comparison, inject
+    a guard immediately after the opening brace.
+    """
+    def _add_value_check(m: re.Match) -> str:
+        fn_head = m.group(0)        # everything up to and including the '{'
+        body_start = m.end()
+        # Find closing brace of this function (depth-aware)
+        depth = 1
+        j = body_start
+        src = m.string
+        while j < len(src) and depth:
+            if src[j] == '{':
+                depth += 1
+            elif src[j] == '}':
+                depth -= 1
+            j += 1
+        body = src[body_start:j - 1]
+        if re.search(r'msg\.value\s*[=!<>]', body):
+            return fn_head          # already validates — leave alone
+        guard = "\n        if (msg.value == 0) revert InsufficientPayment(msg.value, 0);"
+        return fn_head + guard
+
+    code = re.sub(
+        r'function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\{',
+        _add_value_check,
+        code,
+    )
+    return code
+
+
+def _fix_expiry_deadline(code: str) -> str:
+    """
+    COV-020: inject a `uint256 private _deadline;` state variable and a
+    `setDeadline()` function if neither `_deadline` nor `block.timestamp +`
+    appears anywhere in the contract.
+    """
+    has_deadline = bool(
+        re.search(r'\b_deadline\b|\bdeadlineAt\b', code) or
+        re.search(r'block\.timestamp\s*\+', code)
+    )
+    if has_deadline:
+        return code
+
+    decl = "    uint256 private _deadline; // contract expiry (unix timestamp)\n"
+
+    # Only match contract-scope state variable lines: exactly 4 spaces of indent
+    # (function-body lines have 8+ spaces).  Also require a visibility keyword
+    # so we don't accidentally match local variable declarations.
+    last_var = None
+    for m in re.finditer(
+        r'^    (?:address|uint\d*|bool|bytes\d*|string)\s+'
+        r'(?:payable\s+)?(?:private|public|internal)\s+'
+        r'(?:immutable\s+|constant\s+)?\w+\s*[=;][^\n]*\n',
+        code, re.MULTILINE,
+    ):
+        last_var = m
+
+    if last_var:
+        code = code[:last_var.end()] + decl + code[last_var.end():]
+    else:
+        # Fallback: inject right after the contract opening brace line
+        m2 = re.search(r'(\bcontract\s+\w+[^{]*\{[^\n]*\n)', code)
+        if m2:
+            code = code[:m2.end()] + decl + code[m2.end():]
+
+    # Inject setDeadline() before the closing brace of the contract
+    set_fn = (
+        "\n    /// @notice Set the contract expiry deadline (seconds from now).\n"
+        "    function setDeadline(uint256 durationSeconds) external onlyArbitrator {\n"
+        "        _deadline = block.timestamp + durationSeconds;\n"
+        "    }\n"
+    )
+    idx = code.rfind("}")
+    if idx != -1:
+        code = code[:idx] + set_fn + code[idx:]
+    return code
+
+
+def _fix_payable_noReentrant(code: str) -> str:
+    """
+    SEC-003: ensure every external payable function uses the noReentrant modifier.
+    If noReentrant is defined in this contract, add it to any payable function
+    signature that is missing it.
+    """
+    if not re.search(r"modifier\s+noReentrant\s*\(", code):
+        return code  # modifier not present — nothing to apply
+
+    def _add_noReentrant(m: re.Match) -> str:
+        sig = m.group(0)
+        if "noReentrant" in sig:
+            return sig  # already has it
+        # Insert noReentrant before the opening brace
+        return re.sub(r'\{\s*$', 'noReentrant {\n', sig.rstrip())
+
+    # Match function signatures that are payable and external, possibly spanning
+    # multiple lines (modifiers on their own lines before the `{`)
+    code = re.sub(
+        r'(function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\{)',
+        _add_noReentrant,
+        code,
+        flags=re.DOTALL,
+    )
+    return code
+
+
+def _fix_natspec_comments(code: str) -> str:
+    """
+    SOL-013: ensure every public/external function has a /// @notice comment.
+    Count existing ones; if < 8, prepend a generic @notice above each
+    public/external function that is missing one.
+
+    Handles:
+    - Multi-line signatures (modifiers on separate lines before the opening brace)
+    - receive() / fallback() which lack the `function` keyword
+    """
+    MIN_NOTICE = 8
+
+    existing = len(re.findall(r'///\s*@notice', code))
+    if existing >= MIN_NOTICE:
+        return code
+
+    lines = code.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    added = existing
+
+    while i < len(lines):
+        line = lines[i]
+
+        # Match a `function` keyword on this line that has public/external
+        # visibility declared *anywhere* in the following few lines up to `{`
+        fn_start = re.match(r'(\s*)function\s+(\w+)\s*\(', line)
+        if fn_start and added < MIN_NOTICE:
+            indent   = fn_start.group(1)
+            fn_name  = fn_start.group(2)
+            # Scan ahead (up to 8 lines) to find the visibility and opening `{`
+            look = "".join(lines[i: i + 8])
+            is_public_or_external = bool(re.search(r'\b(public|external)\b', look))
+            has_opening_brace = "{" in look
+            prev = out[-1].rstrip() if out else ""
+            if is_public_or_external and has_opening_brace and "@notice" not in prev:
+                out.append(f"{indent}/// @notice Execute {fn_name} operation.\n")
+                added += 1
+
+        # Also match receive() / fallback() which have no `function` keyword
+        rcv_match = re.match(r'(\s*)(receive|fallback)\s*\(\s*\)\s+external', line)
+        if rcv_match and added < MIN_NOTICE:
+            indent  = rcv_match.group(1)
+            fn_name = rcv_match.group(2)
+            prev = out[-1].rstrip() if out else ""
+            if "@notice" not in prev:
+                out.append(f"{indent}/// @notice {fn_name.capitalize()} ETH deposits.\n")
+                added += 1
+
+        out.append(line)
+        i += 1
+
+    return "".join(out)
+
+
 
 # Known error types with their parameter signatures
 _KNOWN_ERROR_SIGS: dict[str, str] = {
@@ -303,9 +632,22 @@ def _fix_missing_custom_errors(code: str) -> str:
     """
     FIX-12: Find every `revert SomeName(...)` call in the contract.
     If SomeName is not declared as a custom error, inject its declaration.
+
+    Also proactively injects the full set of standard errors used by the
+    template (Unauthorized, ReentrantCall, etc.) if ANY of them are missing,
+    to avoid compile errors from modifiers and injected boilerplate.
     """
     # Collect all revert targets
     reverted = set(re.findall(r"\brevert\s+(\w+)\s*[;(]", code))
+
+    # Always ensure the core set of errors that our injected modifiers use
+    # are declared, even if the LLM didn't write explicit revert calls yet.
+    core_errors = {
+        "Unauthorized", "ReentrantCall", "InvalidState",
+        "InsufficientPayment", "DeadlinePassed", "AlreadyDisputed",
+    }
+    # Include core errors in the "reverted" set so they get declared
+    reverted |= core_errors
 
     # Collect already-declared errors
     declared = set(re.findall(r"\berror\s+(\w+)\s*[;(]", code))
@@ -323,7 +665,6 @@ def _fix_missing_custom_errors(code: str) -> str:
     inject_block = "\n".join(injections) + "\n"
 
     # Inject after the contract opening brace, before any existing declarations
-    # Best position: after `contract Foo {` line, or after pragma if no contract found
     m = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
     if m:
         pos = m.end()
@@ -400,6 +741,10 @@ def _fix_missing_noReentrant(code: str) -> str:
     """
     FIX-14: If `noReentrant` appears in a function signature but no
     `modifier noReentrant` body exists, inject the canonical body.
+
+    Also ensures:
+    - `bool private _locked;` state variable is declared.
+    - `error ReentrantCall();` is declared (so the modifier body compiles).
     """
     used    = bool(re.search(r"\bnoReentrant\b", code))
     defined = bool(re.search(r"modifier\s+noReentrant\s*\(", code))
@@ -407,7 +752,7 @@ def _fix_missing_noReentrant(code: str) -> str:
     if not used or defined:
         return code
 
-    # Also ensure _locked is present (FIX-6 runs before this, but be safe)
+    # ── Ensure `bool private _locked;` is at contract scope ─────────────────
     if not re.search(r"bool\s+private\s+_locked\s*;", code):
         inject_lock = "    bool private _locked; // reentrancy guard\n"
         lines = code.splitlines(keepends=True)
@@ -417,7 +762,19 @@ def _fix_missing_noReentrant(code: str) -> str:
                 break
         code = "".join(lines)
 
-    # Inject modifier before the first function definition
+    # ── Ensure `error ReentrantCall();` is declared ──────────────────────────
+    # The modifier body uses `revert ReentrantCall()` — it must be declared
+    # before the modifier injection so the code compiles end-to-end.
+    if not re.search(r"\berror\s+ReentrantCall\s*\(", code):
+        m_contract = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
+        if m_contract:
+            code = (
+                code[: m_contract.end()]
+                + "\n    error ReentrantCall();"
+                + code[m_contract.end():]
+            )
+
+    # ── Inject modifier before the first function definition ─────────────────
     lines = code.splitlines(keepends=True)
     for i, line in enumerate(lines):
         if re.match(r"\s*function\s+\w+", line):
@@ -432,10 +789,14 @@ def _fix_missing_noReentrant(code: str) -> str:
 
 # Common aliased party variable names the LLM uses instead of _partyA/_partyB
 _PARTY_ALIASES = [
+    # Generic party names
     "parent", "acquisitionSub", "mergerSub", "buyer", "seller",
     "employer", "employee", "licensor", "licensee", "lessor", "lessee",
     "borrower", "lender", "owner", "developer", "client", "vendor",
     "partyA", "partyB", "party1", "party2",
+    # M&A / corporate names the LLM uses for merger contracts
+    "company", "acquirer", "target", "subsidiary", "holdco", "newco",
+    "mergerParty", "mergee", "parentCo", "subCo",
 ]
 
 
@@ -506,12 +867,49 @@ def _fix_broken_onlyParties(code: str) -> str:
         return rewritten
 
     # Match any modifier whose name contains "onlyParties" or "onlyParty"
-    code = re.sub(
-        r"modifier\s+only(?:Parties|Party\w*)\s*\(\s*\)\s*\{[^}]+\}",
-        _rewrite_modifier_body,
-        code,
-        flags=re.DOTALL,
-    )
+    # Use a depth-aware scan instead of [^}]+ to handle nested braces correctly
+    def _replace_all_onlyParties(src: str) -> str:
+        pat = re.compile(r'modifier\s+only(?:Parties|Party\w*)\s*\(\s*\)', re.DOTALL)
+        result = []
+        pos = 0
+        for mhead in pat.finditer(src):
+            result.append(src[pos:mhead.end()])
+            # Find the opening brace of this modifier
+            rest = src[mhead.end():]
+            brace_m = re.search(r'\{', rest)
+            if not brace_m:
+                pos = mhead.end()
+                continue
+            brace_start = mhead.end() + brace_m.start()
+            result.append(src[mhead.end():brace_start])  # whitespace before {
+            # Now find the matching closing brace (depth-aware)
+            depth = 0
+            j = brace_start
+            while j < len(src):
+                if src[j] == '{':
+                    depth += 1
+                elif src[j] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        mod_block = src[brace_start: j + 1]
+                        # Build a fake match object for _rewrite_modifier_body
+                        fake_full = mhead.group(0) + mod_block
+                        class _FM:
+                            def group(self_, n):
+                                return fake_full
+                        rewritten = _rewrite_modifier_body(_FM())
+                        # Extract only the body part from the rewritten text
+                        rewritten_body = re.search(r'\{.*\}', rewritten, re.DOTALL)
+                        result.append(rewritten_body.group(0) if rewritten_body else mod_block)
+                        pos = j + 1
+                        break
+                j += 1
+            else:
+                pos = mhead.end()
+        result.append(src[pos:])
+        return "".join(result)
+
+    code = _replace_all_onlyParties(code)
     return code
 
 
@@ -762,23 +1160,32 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = _fix_mapping_return(code)
     code = _fix_calculatePenalty_view(code)
 
-    # ── Phase 2: resolve "Identifier not found" errors ───────────────────
+    # ── Phase 2: resolve type / naming errors ────────────────────────────
+    code = _fix_bare_locked(code)                # NEW: bare `locked` → `_locked`
+    code = _fix_contractstate_type(code)         # NEW: uint256 contractState → ContractState
+
+    # ── Phase 3: resolve "Identifier not found" errors ───────────────────
     code = _fix_undeclared_state_var_refs(code)  # FIX-15: replace bad party aliases
     code = _fix_broken_onlyParties(code)         # FIX-16: rewrite broken modifier bodies
     code = _fix_missing_noReentrant(code)        # FIX-14: inject missing noReentrant body
+    code = _fix_payable_noReentrant(code)         # FIX-18: apply noReentrant to payable fns
     code = _fix_missing_custom_errors(code)      # FIX-12: declare all revert targets
     code = _fix_missing_events(code)             # FIX-13: declare all emit targets
 
-    # ── Phase 3: inject missing required constructs ──────────────────────
+    # ── Phase 4: inject missing required constructs ──────────────────────
     code = _fix_locked_declaration(code)
     code = _fix_onlyX_modifiers(code)
     code = _fix_governing_law_constant(code, doc)
     code = _fix_start_date(code)
-    code = _fix_require_to_custom_errors(code)
+    code = _fix_require_to_custom_errors(code)   # paren-balanced parser (fixed)
+    code = _fix_msg_value_validation(code)       # NEW: SEC-004 msg.value guard
+    code = _fix_expiry_deadline(code)            # NEW: COV-020 _deadline injection
     code = _fix_payable_and_receive(code)        # FIX-11 (updated)
+    code = _fix_payable_noReentrant(code)         # Re-run: cover any newly injected payable fns
     code = _add_receive_if_missing(code)
 
-    # ── Phase 4: formatting + banner ─────────────────────────────────────
+    # ── Phase 5: documentation + formatting ──────────────────────────────
+    code = _fix_natspec_comments(code)           # NEW: SOL-013 ≥8 @notice
     code = _fix_trailing_whitespace(code)
     code = _add_version_comment(code, doc)
     return code
