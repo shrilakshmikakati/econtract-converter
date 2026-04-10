@@ -6,8 +6,6 @@
 echo "========================================"
 echo " E-Contract → Solidity Converter"
 echo "========================================"
-
-echo "Conversion may take 8-10 minutes depending on the size of the input file. Please wait..." 
 # Check input argument
 if [ -z "$1" ]; then
     echo "Usage: ./convert.sh <econtract.txt>"
@@ -35,10 +33,12 @@ if [ ! -d "$RESULT_DIR" ]; then
     echo "Created result directory."
 fi
 
-#new_file=${1%.txt}
+new_file=${1%.txt}
 name=$(basename "$1")
 name="${name%.*}"
+#python3 cli.py run --file $1
 python3 econtract_converter.py $1
+
 
 
 if [ ! -d ./$RESULT_DIR/$name-$2 ];
@@ -47,16 +47,22 @@ mkdir ./$RESULT_DIR/$name-$2
 fi 
 chg_fle=$pwd
 
+if [ ! -d ./$RESULT_DIR/$name-$2/Assert ];
+then
+mkdir ./$RESULT_DIR/$name-$2/Assert
+fi 
+
 
 mv ./Results/$name/* ./$RESULT_DIR/$name-$2
+
+
 rmdir ./Results/$name
 SOL_FILE=$(find "./$RESULT_DIR/$name-$2" -name "*.sol" | head -n 1)
  echo "$SOL_FILE"
+cp $SOL_FILE ./$RESULT_DIR/$name-$2/Assert
 
 
-#cp "$1" "./$RESULT_DIR/$new_file-$2"
-#OUTPUT_FILE="$RESULT_DIR/$new_file-$2/GeneratedContract.sol"
-OUTPUT_FILE="$RESULT_DIR/$new_file-$2/$new_file.sol"
+#OUTPUT_FILE="$RESULT_DIR/$new_file-$2/$new_file.sol"
 resultFile="${name}_output.txt"
 outputfile="${name}_Final_Output.txt"; 
 
@@ -65,43 +71,38 @@ if [ ! -f "$SOL_FILE" ]; then
     echo "Error: Smart contract was not generated!"
     exit 1
 fi
- 
+assertionInsertCount=`./.assertinserter ./$RESULT_DIR/$name-$2/Assert/${new_file}.sol`
+
 
 if [ "$2" == "bmc" ]
-echo "$2"
 then
-sol_comp=$( solc "$SOL_FILE" --model-checker-engine bmc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/$resultFile )	
-sed -i 's/Warning: BMC:/CheckPoint\nWarning: BMC:/g' ./$RESULT_DIR/$name-$2/$resultFile 
+#sol_comp=$( solc "$SOL_FILE" --model-checker-engine bmc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/$resultFile )	
+sol_comp=$( solc "./$RESULT_DIR/$name-$2/Assert/${new_file}.sol" --model-checker-engine bmc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/Assert/$resultFile )	
+sed -i 's/Warning: BMC:/CheckPoint\nWarning: BMC:/g' ./$RESULT_DIR/$name-$2/Assert/$resultFile 
 
-sed -n '/Warning: BMC: Assertion violation happens here./, /CheckPoint/p' ./$RESULT_DIR/$name-$2/$resultFile &> ./$RESULT_DIR/$name-$2/$outputfile 
+sed -n '/Warning: BMC: Assertion violation happens here./, /CheckPoint/p' ./$RESULT_DIR/$name-$2/Assert/$resultFile &> ./$RESULT_DIR/$name-$2/Assert/$outputfile 
 fi
    
 if [ "$2" == "chc" ]
 then
-sol_comp=$( solc "$SOL_FILE" --model-checker-engine chc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/$resultFile )	
-sed -i 's/Warning: CHC:/CheckPoint\nWarning: CHC:/g' ./$RESULT_DIR/$name-$2/$resultFile 
+sol_comp=$( solc "./$RESULT_DIR/$name-$2/Assert/${new_file}.sol" --model-checker-engine chc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/Assert/$resultFile )	
+sed -i 's/Warning: CHC:/CheckPoint\nWarning: CHC:/g' ./$RESULT_DIR/$name-$2/Assert/$resultFile 
 
-sed -n '/Warning: CHC: Assertion violation happens here./, /CheckPoint/p' ./$RESULT_DIR/$name-$2/$resultFile &> ./$RESULT_DIR/$name-$2/$outputfile 
+sed -n '/Warning: CHC: Assertion violation happens here./, /CheckPoint/p' ./$RESULT_DIR/$name-$2/Assert/$resultFile &> ./$RESULT_DIR/$name-$2/Assert/$outputfile 
 fi
-# Optional: Compile using solc if installed
-#if command -v solc &> /dev/null; then
-  #  echo "Compiling with solc..."
-   # solc --bin --abi "$OUTPUT_FILE" -o "$RESULT_DIR"
-    #echo "Compilation output saved inside result/ folder."
-#else
- #   echo "solc not installed. Skipping compilation."
-#fi
-grep "assert(" ./$RESULT_DIR/$name-$2/$outputfile > ./$RESULT_DIR/$name-$2/.grep_result.txt
 
-cut -d "|" -f 1 ./$RESULT_DIR/$name-$2/.grep_result.txt > ./$RESULT_DIR/$name-$2/.cut_result.txt 
-sort -n -u ./$RESULT_DIR/$name-$2/.cut_result.txt  > ./$RESULT_DIR/$name-$2/.sort_result.txt
-sort -n  ./$RESULT_DIR/$name-$2/.grep_result.txt > ./$RESULT_DIR/$name-$2/Dynamic_Assertions.txt
-sort -n -u ./$RESULT_DIR/$name-$2/Dynamic_Assertions.txt > ./$RESULT_DIR/$name-$2/Unique_Assertions.txt
-grep "assert" ./$RESULT_DIR/$name-$2/$name.sol  > ./$RESULT_DIR/$name-$2/Assertions_Insertesd.txt
-dynamic=`wc -l < ./$RESULT_DIR/$name-$2/.cut_result.txt`
-uniq=`wc -l < ./$RESULT_DIR/$name-$2/.sort_result.txt` 
+grep "assert(" ./$RESULT_DIR/$name-$2/Assert/$outputfile > ./$RESULT_DIR/$name-$2/Assert/.grep_result.txt
+
+cut -d "|" -f 1 ./$RESULT_DIR/$name-$2/Assert/.grep_result.txt > ./$RESULT_DIR/$name-$2/Assert/.cut_result.txt 
+sort -n -u ./$RESULT_DIR/$name-$2/Assert/.cut_result.txt  > ./$RESULT_DIR/$name-$2/Assert/.sort_result.txt
+sort -n  ./$RESULT_DIR/$name-$2/Assert/.grep_result.txt > ./$RESULT_DIR/$name-$2/Assert/Dynamic_Assertions.txt
+sort -n -u ./$RESULT_DIR/$name-$2/Assert/Dynamic_Assertions.txt > ./$RESULT_DIR/$name-$2/Assert/Unique_Assertions.txt
+grep "assert" ./$RESULT_DIR/$name-$2/Assert/$name.sol  > ./$RESULT_DIR/$name-$2/Assert/Assertions_Insertesd.txt
+dynamic=`wc -l < ./$RESULT_DIR/$name-$2/Assert/.cut_result.txt`
+uniq=`wc -l < ./$RESULT_DIR/$name-$2/Assert/.sort_result.txt` 
+
+if [[ $assertionInsertCount -gt 0 ]]; then
 let atomiccondition=$assertionInsertCount/2
-if [[ $atomiccondition -gt 0 ]]; then
 conditioncoverage=$(($uniq*100/$assertionInsertCount))
 else
 conditioncoverage=0
@@ -111,8 +112,16 @@ echo "Properties violation detected (dynamic) : ${dynamic}"
 echo "Properties violation detected (unique) : ${uniq}"
 echo "Total atomic condition : ${atomiccondition}"
 echo "Condition Coverage % : ${conditioncoverage}%"
+{
+echo "Properties inserted : ${assertionInsertCount}" 
+echo "Properties violation detected (dynamic) : ${dynamic}" 
+echo "Properties violation detected (unique) : ${uniq}" 
+echo "Total atomic condition : ${atomiccondition}"
+echo "Condition Coverage % : ${conditioncoverage}%" 
+} > $name-result.txt
+mv  $name-result.txt Results/$name-$2/Assert/
 
 finalOutput="${new_file}_result.txt"
-rm ./$RESULT_DIR/$name-$2/.grep_result.txt
-rm ./$RESULT_DIR/$name-$2/.cut_result.txt
-rm ./$RESULT_DIR/$name-$2/.sort_result.txt
+rm ./$RESULT_DIR/$name-$2/Assert/.grep_result.txt
+rm ./$RESULT_DIR/$name-$2/Assert/.cut_result.txt
+rm ./$RESULT_DIR/$name-$2/Assert/.sort_result.txt

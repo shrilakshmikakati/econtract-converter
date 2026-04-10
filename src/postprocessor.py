@@ -529,6 +529,122 @@ def _fix_expiry_deadline(code: str) -> str:
     return code
 
 
+def _fix_party_var_naming(code: str) -> str:
+    """
+    FIX-21: The LLM sometimes declares `address private partyA;` and
+    `address private partyB;` (no underscore prefix) instead of `_partyA`
+    and `_partyB`. Rename them everywhere for consistency and to ensure
+    _fix_broken_onlyParties can identify them correctly.
+    """
+    # Only rename if the underscore-prefixed form is NOT already present,
+    # to avoid double-renaming.
+    for bare, canonical in [("partyA", "_partyA"), ("partyB", "_partyB")]:
+        if re.search(rf'\b{canonical}\b', code):
+            continue  # canonical form already present — leave alone
+        if re.search(rf'\b{bare}\b', code):
+            # Rename whole-word occurrences, careful not to hit e.g. `_partyA` or `partyABC`
+            code = re.sub(rf'\b{bare}\b', canonical, code)
+    return code
+
+
+def _fix_modifier_ordering(code: str) -> str:
+    """
+    FIX-22: Modifiers must be declared before the first function that uses
+    them (Solidity requires this when a modifier is used before its declaration
+    in older compiler versions, and it avoids "not yet visible" errors).
+
+    Move all `modifier` blocks to appear before the first `function` definition.
+    """
+    # Find the position of the first `function` keyword at contract scope
+    # (4-space indent, to skip functions inside modifiers/other blocks)
+    first_fn = re.search(r'\n    function\s+\w+', code)
+    if not first_fn:
+        return code
+    first_fn_pos = first_fn.start()
+
+    # Collect all modifier blocks that appear AFTER the first function
+    modifier_pat = re.compile(
+        r'\n(    modifier\s+\w+[^{]*\{(?:[^{}]|\{[^}]*\})*\})',
+        re.DOTALL,
+    )
+
+    modifiers_to_move: list[tuple[int, int, str]] = []
+    for m in modifier_pat.finditer(code):
+        if m.start() > first_fn_pos:
+            modifiers_to_move.append((m.start(), m.end(), m.group(0)))
+
+    if not modifiers_to_move:
+        return code
+
+    # Remove them from their original positions (iterate in reverse)
+    for start, end, _ in reversed(modifiers_to_move):
+        code = code[:start] + code[end:]
+
+    # Re-find first_fn position (offsets changed after removal)
+    first_fn = re.search(r'\n    function\s+\w+', code)
+    if not first_fn:
+        return code
+
+    # Insert all collected modifiers just before the first function
+    insert_pos = first_fn.start()
+    block = "".join(text for _, _, text in modifiers_to_move)
+    code = code[:insert_pos] + block + code[insert_pos:]
+    return code
+
+
+def _fix_receive_body(code: str) -> str:
+    """
+    FIX-19: The LLM sometimes writes receive() bodies that call internal
+    functions like `pay(msg.value)` — this is a compile error because
+    pay() is external and cannot be called internally.
+    Replace any such body with a safe canonical emit.
+    """
+    def _fix_receive(m: re.Match) -> str:
+        body = m.group(1)
+        # If the body calls any function other than emit/revert/if/require, replace it
+        if re.search(r'\b(?!emit|revert|if|require)\w+\s*\(', body):
+            if "PaymentReceived" in code:
+                safe_body = "        emit PaymentReceived(msg.sender, msg.value);\n    "
+            elif "PaymentMade" in code:
+                safe_body = "        emit PaymentMade(msg.sender, msg.value);\n    "
+            else:
+                safe_body = "        // ETH received\n    "
+            return m.group(0).replace(body, safe_body)
+        return m.group(0)
+
+    code = re.sub(
+        r'receive\s*\(\s*\)\s+external\s+payable\s*\{([^}]*)\}',
+        _fix_receive,
+        code,
+        flags=re.DOTALL,
+    )
+    return code
+
+
+def _fix_return_in_non_returning_fn(code: str) -> str:
+    """
+    FIX-20: Remove `return value;` from functions that have no `returns (...)`
+    clause — this is a compile error in Solidity.
+    """
+    def _strip_return(m: re.Match) -> str:
+        fn_head = m.group(1)
+        body    = m.group(2)
+        if re.search(r'\breturns\s*\(', fn_head):
+            return m.group(0)
+        new_body = re.sub(r'\n?\s*return\s+[^;]+;\n?', '\n', body)
+        if new_body == body:
+            return m.group(0)
+        return fn_head + "{\n" + new_body + "    }"
+
+    code = re.sub(
+        r'(function\s+\w+[^{]+)\{\n((?:[^{}]|\{[^}]*\})*?)\n    \}',
+        _strip_return,
+        code,
+        flags=re.DOTALL,
+    )
+    return code
+
+
 def _fix_payable_noReentrant(code: str) -> str:
     """
     SEC-003: ensure every external payable function uses the noReentrant modifier.
@@ -1165,8 +1281,12 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = _fix_contractstate_type(code)         # NEW: uint256 contractState → ContractState
 
     # ── Phase 3: resolve "Identifier not found" errors ───────────────────
+    code = _fix_party_var_naming(code)            # FIX-21: partyA → _partyA everywhere
     code = _fix_undeclared_state_var_refs(code)  # FIX-15: replace bad party aliases
     code = _fix_broken_onlyParties(code)         # FIX-16: rewrite broken modifier bodies
+    code = _fix_modifier_ordering(code)          # FIX-22: hoist modifiers before functions
+    code = _fix_receive_body(code)               # FIX-19: fix receive() calling internal fns
+    code = _fix_return_in_non_returning_fn(code) # FIX-20: drop return stmts in void fns
     code = _fix_missing_noReentrant(code)        # FIX-14: inject missing noReentrant body
     code = _fix_payable_noReentrant(code)         # FIX-18: apply noReentrant to payable fns
     code = _fix_missing_custom_errors(code)      # FIX-12: declare all revert targets
