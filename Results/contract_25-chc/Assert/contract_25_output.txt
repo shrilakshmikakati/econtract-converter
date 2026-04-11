@@ -1,0 +1,11 @@
+Error: Identifier already declared.
+  --> Results/contract_25-chc/Assert/contract_25.sol:37:56:
+   |
+37 |     event ContractCreated(address indexed _arbitrator, address indexed _arbitrator, uint256 amount);
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: The previous declaration is here:
+  --> Results/contract_25-chc/Assert/contract_25.sol:37:27:
+   |
+37 |     event ContractCreated(address indexed _arbitrator, address indexed _arbitrator, uint256 amount);
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

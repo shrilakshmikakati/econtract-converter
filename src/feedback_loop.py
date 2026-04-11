@@ -61,7 +61,7 @@ logger = logging.getLogger("econtract.feedback_loop")
 #  Configuration defaults
 # ═══════════════════════════════════════════════════════════════════════════
 
-MAX_FEEDBACK_ITERATIONS = 8
+MAX_FEEDBACK_ITERATIONS = 3
 TARGET_ACCURACY         = 100.0   # percentage; loop exits when reached
 
 
@@ -400,7 +400,7 @@ def run_feedback_loop(
             if verbose:
                 print(f"\n{_GRN}{'━'*70}")
                 print(
-                    f"  ✅  Converged after {iteration} iteration(s)!  "
+                    f"    Converged after {iteration} iteration(s)!  "
                     f"Accuracy: {report.accuracy_overall:.1f}%"
                 )
                 print(f"{'━'*70}{_RST}\n")
@@ -449,7 +449,7 @@ def run_feedback_loop(
     # ── Exhausted all iterations ────────────────────────────────────────────
     if verbose:
         print(f"\n{_YLW}{'━'*70}")
-        print(f"  ⚠️  Max iterations ({max_iterations}) reached.")
+        print(f"    Max iterations ({max_iterations}) reached.")
         print(f"  Best accuracy achieved: {best_accuracy:.1f}%")
         print(f"  Returning best contract seen so far.")
         print(f"{'━'*70}{_RST}\n")

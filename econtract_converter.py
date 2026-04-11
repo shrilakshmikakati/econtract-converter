@@ -125,7 +125,7 @@ def compile_with_solc(solidity_code: str) -> Tuple[bool, str]:
     """
     solc_path = _find_solc()
     if solc_path is None:
-        return True, ""   # solc not installed → skip check, don't block
+        return True, ""   
 
     with tempfile.NamedTemporaryFile(
         suffix=".sol", mode="w", encoding="utf-8", delete=False
@@ -310,7 +310,7 @@ def run_pipeline_with_feedback(
             if verbose:
                 print(f"\n{_GRN}{'━'*70}")
                 print(
-                    f"  ✅  Converged after {iteration} iteration(s)!  "
+                    f"    Converged after {iteration} iteration(s)!  "
                     f"Accuracy: {report.accuracy_overall:.1f}%  |  solc: ✓"
                 )
                 print(f"{'━'*70}{_RST}\n")
@@ -638,8 +638,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", default="./Results",
                    help="Output root directory (default: ./Results)")
     p.add_argument("-m", "--model",
-                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),
-                   help="LLM model name (default: qwen2.5-coder:7b)")
+                   default=os.environ.get("LLM_MODEL", "llama3.1:8b"),
+                   help="LLM model name (default: llama3.1:8b)")
     p.add_argument("--backend", choices=["ollama", "openai"],
                    default=os.environ.get("LLM_BACKEND", "ollama"))
     p.add_argument("--ollama-url",

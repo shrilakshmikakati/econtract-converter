@@ -58,9 +58,9 @@ RECOMMENDED_MODELS = [
     "mistral:7b",
     "gemma:7b",
 ]
-DEFAULT_MODEL   = "qwen2.5-coder:7b"
+DEFAULT_MODEL   = "llama3.1:8b "
 CONNECT_TIMEOUT = 10
-REQUEST_TIMEOUT = 900
+REQUEST_TIMEOUT = 300
 MAX_RETRIES     = 3
 RETRY_DELAY     = 5
 MAX_TOKENS      = 4096

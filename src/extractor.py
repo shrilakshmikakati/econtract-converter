@@ -288,9 +288,6 @@ def _extract_parties(text: str) -> List[ContractParty]:
 def _extract_title(text: str) -> str:
     for line in text.splitlines():
         stripped = line.strip()
-        # FIX 5: original had operator-precedence bug — `and` binds tighter than
-        #         the multi-condition `or`, making the isupper() branch always True.
-        #         Added inner parentheses to group the two alternatives correctly.
         if stripped and 5 < len(stripped) < 150 and (
             stripped.isupper()
             or re.search(r"agreement|contract|deed|memorandum|mou|nda|sla", stripped, re.I)
