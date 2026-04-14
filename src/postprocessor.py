@@ -2,37 +2,48 @@
 postprocessor.py — Cleans raw LLM output, applies deterministic Solidity
 fixes, and generates the final output artefacts.
 
-FIXES vs previous version:
-  1–4.  (unchanged) SPDX, pragma, banner, safemath, OZ, selfdestruct, tx.origin
+ASSERT-AWARE VERSION
+====================
+assert() calls are INTENTIONALLY PRESERVED throughout this postprocessor.
+
+assertionInjector1.cpp injects the following probe pairs before every
+if / require / while / for condition in the .sol file:
+
+    assert(!(condition));       ← BMC/CHC reachability probe
+    assert(!(!(condition)));    ← BMC/CHC satisfiability probe
+
+It also rewrites the pragma to `pragma solidity >=0.4.24;` so that
+solc's model checker accepts the file.
+
+The pipeline is:
+    LLM → postprocessor (this file) → assertionInjector1.cpp
+                                              ↓
+                                   solc --model-checker-engine bmc/chc
+                                              ↓
+                                     results/<name>-bmc/ or -chc/
+
+The postprocessor runs BEFORE the injector, so at this stage the .sol
+contains no assert() calls yet.  _fix_assert_calls() is a no-op here
+to ensure that if any assert() somehow appears in LLM output it is also
+left alone (the verifier will handle it correctly either way).
+
+FIXES:
+  1–4.  SPDX, pragma (all operators: >=, <=, ^, ~, bare), safemath, OZ,
+        selfdestruct, tx.origin
   5.    _fix_calculatePenalty_view — remove view from calculatePenalty()
   6.    _fix_locked_declaration — ensure bool private _locked at contract scope
   7.    _fix_onlyX_modifiers — ensure ≥2 onlyX modifiers
-  8.    _fix_governing_law_constant — inject GOVERNING_LAW string constant
+  8.    _fix_governing_law_constant — inject GOVERNING_LAW constant (full
+        jurisdiction name, not just first word)
   9.    _fix_start_date — inject startDate immutable
   10.   _fix_require_to_custom_errors — convert remaining require() calls
   11.   _fix_payable_and_receive — inject pay/receive if missing
-
-  NEW FIXES (this version):
-  12.   _fix_missing_custom_errors — declare ALL error types that are `revert`ed
-        but not declared. Catches: Unauthorized, InvalidState, ReentrantCall,
-        InsufficientPayment, DeadlinePassed, AlreadyDisputed, and any other
-        revert targets used in the generated code.
-  13.   _fix_missing_events — declare ALL events that are `emit`ted but not
-        declared. Catches: PaymentReceived, and any other undeclared events.
-  14.   _fix_missing_noReentrant — if noReentrant is used in function signatures
-        but the modifier body is absent, inject the full canonical modifier.
-  15.   _fix_undeclared_state_vars — detect address/uint/bool identifiers used
-        in modifier bodies / function bodies that are never declared as state
-        variables; replace references with safe fallbacks (_arbitrator, etc.)
-        to prevent "Identifier not found" compile errors.
-  16.   _fix_broken_onlyParties — rewrite onlyParties() bodies that reference
-        undeclared variables (parent, acquisitionSub, buyer, seller, etc.)
-        using whatever party addresses ARE declared (_partyA/_partyB or
-        _arbitrator as fallback).
-  17.   _fix_immutable_init — catch `uint256 public immutable startDate = X;`
-        (direct initialisation) which is only allowed for literals. When
-        EFFECTIVE_DATE (a constant) is used as the RHS, rewrite to
-        `uint256 public immutable startDate;` + constructor assignment.
+  12.   _fix_missing_custom_errors — declare all revert targets
+  13.   _fix_missing_events — declare all emit targets
+  14.   _fix_missing_noReentrant — inject noReentrant body if missing
+  15.   _fix_undeclared_state_vars — replace undeclared party aliases
+  16.   _fix_broken_onlyParties — rewrite broken modifier bodies
+  17.   _fix_immutable_init — fix inline immutable initialisation
 """
 
 from __future__ import annotations
@@ -96,8 +107,19 @@ def _declared_identifiers(code: str) -> set[str]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _fix_pragma(code: str) -> str:
+    """
+    Normalise the Solidity pragma to ^0.8.16.
+
+    The assertionInjector1.cpp tool rewrites the pragma to
+    `pragma solidity >=0.4.24;` before running BMC/CHC.  When we are
+    processing the LLM output (before injection) we want ^0.8.16.
+
+    Matches ALL operator variants: ^, ~, >=, <=, >, <, = or bare version.
+    The old regex `[\^~]?` missed `>=` and `<=`, leaving the pragma unchanged.
+    """
+    # Match pragma with any comparison operator or none
     code = re.sub(
-        r"pragma\s+solidity\s+[\^~]?0\.\d+\.\d+;",
+        r"pragma\s+solidity\s+(?:[><=^~!]+\s*)?\d+\.\d+(?:\.\d+)?\s*;",
         "pragma solidity ^0.8.16;",
         code,
     )
@@ -142,6 +164,22 @@ def _fix_selfdestruct(code: str) -> str:
 
 def _fix_tx_origin(code: str) -> str:
     return re.sub(r"\btx\.origin\b", "msg.sender /* was tx.origin — fixed */", code)
+
+
+def _fix_assert_calls(code: str) -> str:
+    """
+    NO-OP: assert() calls are intentionally preserved.
+
+    assert(!(condition)) and assert(!(!(condition))) pairs are injected by
+    assertionInjector1.cpp as formal-verification probes for BMC/CHC solvers
+    (e.g. solc --model-checker-engine bmc/chc).  The postprocessor must never
+    remove, rewrite, or convert them — doing so would silently destroy the
+    verification harness.
+
+    The pragma is also kept as >=0.4.24 (written by the injector) so that
+    solc's model checker accepts the file without a version mismatch.
+    """
+    return code
 
 
 def _fix_noReentrant_modifier(code: str) -> str:
@@ -195,14 +233,157 @@ def _fix_locked_declaration(code: str) -> str:
     return code
 
 
+def _fix_party_declarations(code: str) -> str:
+    """
+    FIX-25: If _partyA or _partyB are referenced anywhere (state assignments,
+    modifier bodies, function bodies) but NOT declared as state variables,
+    inject canonical declarations before the first modifier/constructor.
+    """
+    def _has_decl(var: str) -> bool:
+        return bool(re.search(
+            rf'address\s+(?:payable\s+)?(?:private|public|internal)\s+{re.escape(var)}\s*[;=]',
+            code,
+        ))
+
+    need_a = '_partyA' in code and not _has_decl('_partyA')
+    need_b = '_partyB' in code and not _has_decl('_partyB')
+
+    if not need_a and not need_b:
+        return code
+
+    inject = ""
+    if need_a:
+        inject += "    address payable private _partyA;\n"
+    if need_b:
+        inject += "    address payable private _partyB;\n"
+
+    lines = code.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if re.match(r"\s*(modifier|constructor)\b", line):
+            lines.insert(i, inject)
+            return "".join(lines)
+    # Fallback: after contract opening brace
+    m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
+    if m:
+        return code[:m.end()] + inject + code[m.end():]
+    return code
+
+
+def _fix_state_var_declaration(code: str) -> str:
+    """
+    FIX-26: If `_state` (ContractState) is referenced but not declared,
+    inject `ContractState private _state = ContractState.Created;`.
+    Also ensures ContractState enum exists.
+    """
+    has_enum  = bool(re.search(r'\benum\s+ContractState\b', code))
+    has_state = bool(re.search(
+        r'ContractState\s+(?:private|public|internal)\s+_state\b', code
+    ))
+    # _state used but not declared
+    if '_state' not in code or has_state:
+        return code
+
+    # Inject enum if missing
+    if not has_enum:
+        enum_block = (
+            "    enum ContractState { Created, Active, Completed, Disputed, Terminated }\n"
+        )
+        m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
+        if m:
+            code = code[:m.end()] + enum_block + code[m.end():]
+
+    # Inject _state declaration before first modifier/constructor
+    decl = "    ContractState private _state = ContractState.Created;\n"
+    lines = code.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if re.match(r"\s*(modifier|constructor)\b", line):
+            lines.insert(i, decl)
+            return "".join(lines)
+    return code
+
+
+def _fix_onlyPartyA_modifier(code: str) -> str:
+    """
+    FIX-27: If `onlyPartyA` modifier is used in function signatures but not
+    declared, inject it — provided _partyA is declared.
+    """
+    used    = bool(re.search(r'\bonlyPartyA\b', code))
+    defined = bool(re.search(r'modifier\s+onlyPartyA\s*\(', code))
+    if not used or defined:
+        return code
+
+    declared = _get_declared_state_vars(code)
+    party = '_partyA' if '_partyA' in declared else None
+    if not party:
+        return code
+
+    mod = (
+        f"    modifier onlyPartyA() {{\n"
+        f"        if (msg.sender != {party}) revert Unauthorized();\n"
+        f"        _;\n"
+        f"    }}\n"
+    )
+    # Insert before first function
+    lines = code.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if re.match(r"\s*function\s+\w+", line):
+            lines.insert(i, mod)
+            return "".join(lines)
+    return code
+
+
+def _fix_msg_value_lte_zero(code: str) -> str:
+    """
+    FIX-28: `msg.value <= 0` is always false because msg.value is uint256
+    (can never be negative). Replace with `msg.value == 0`.
+    Similarly `msg.value < 0` → `false` (also always false).
+    """
+    code = re.sub(r'\bmsg\.value\s*<=\s*0\b', 'msg.value == 0', code)
+    code = re.sub(r'\bmsg\.value\s*<\s*0\b',  'false',          code)
+    return code
+
+
+def _fix_duplicate_banner(code: str) -> str:
+    """
+    FIX-29: Remove duplicate banner comment blocks. The LLM sometimes
+    re-emits the banner on repair iterations, producing two identical
+    =====...===== / Generated: blocks. Keep only the first one.
+    """
+    # Match the full banner block: // ===...=== ... // ===...===
+    banner_pat = re.compile(
+        r'(//\s*={10,}[^\n]*\n'   # opening ====
+        r'(?://[^\n]*\n)+'        # interior comment lines
+        r'//\s*={10,}[^\n]*\n)',  # closing ====
+        re.MULTILINE,
+    )
+    matches = list(banner_pat.finditer(code))
+    if len(matches) <= 1:
+        return code
+    # Remove all but the first banner
+    for m in reversed(matches[1:]):
+        code = code[:m.start()] + code[m.end():]
+    return code
+
+
 def _fix_governing_law_constant(code: str, doc: ContractDocument) -> str:
     if "GOVERNING_LAW" in code:
         return code
-    gov = doc.governing_law or ""
+    gov = (doc.governing_law or "").strip()
     if not gov:
         return code
-    gov_word = gov.split()[0]
-    constant_line = f'    string public constant GOVERNING_LAW = "{gov_word}";\n'
+    # Strip common legal preamble fragments so we get the actual jurisdiction,
+    # e.g. "governed by the laws of the State of Delaware" → "Delaware"
+    #      "and New York law" → "New York"
+    gov_clean = re.sub(
+        r"(?i)^(?:and\s+)?(?:the\s+)?(?:laws?\s+of\s+(?:the\s+)?(?:state\s+of\s+)?)?",
+        "",
+        gov,
+    ).strip()
+    # Drop trailing " law" or " laws"
+    gov_clean = re.sub(r"(?i)\s+laws?$", "", gov_clean).strip()
+    # Use the full cleaned string (multi-word jurisdictions like "New York" are valid)
+    jurisdiction = gov_clean if gov_clean else "Unknown"
+    constant_line = f'    string public constant GOVERNING_LAW = "{jurisdiction}";\n'
     m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
     if m:
         code = code[:m.end()] + constant_line + code[m.end():]
@@ -650,25 +831,36 @@ def _fix_payable_noReentrant(code: str) -> str:
     SEC-003: ensure every external payable function uses the noReentrant modifier.
     If noReentrant is defined in this contract, add it to any payable function
     signature that is missing it.
+
+    Uses a char-by-char scan to locate the opening `{` of each payable function
+    signature so the modifier is inserted at exactly the right place, regardless
+    of whether the signature spans one or multiple lines.
     """
     if not re.search(r"modifier\s+noReentrant\s*\(", code):
         return code  # modifier not present — nothing to apply
 
-    def _add_noReentrant(m: re.Match) -> str:
-        sig = m.group(0)
-        if "noReentrant" in sig:
-            return sig  # already has it
-        # Insert noReentrant before the opening brace
-        return re.sub(r'\{\s*$', 'noReentrant {\n', sig.rstrip())
-
-    # Match function signatures that are payable and external, possibly spanning
-    # multiple lines (modifiers on their own lines before the `{`)
-    code = re.sub(
-        r'(function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\{)',
-        _add_noReentrant,
-        code,
-        flags=re.DOTALL,
+    # Find every payable function head (up to and including its opening '{')
+    # The DOTALL flag lets [^{]* span newlines inside the signature.
+    pat = re.compile(
+        r'(function\s+(\w+)\s*\([^)]*\)[^{]*\bpayable\b[^{]*)\{',
+        re.DOTALL,
     )
+
+    def _add_noReentrant(m: re.Match) -> str:
+        sig_before_brace = m.group(1)   # everything before the '{'
+        fn_name          = m.group(2)
+
+        # Already has noReentrant somewhere in the signature?
+        if "noReentrant" in sig_before_brace:
+            return m.group(0)
+
+        # Append noReentrant before the opening brace.
+        # Strip trailing whitespace/newlines from the signature, add the
+        # modifier, then re-open the brace on the same line.
+        stripped = sig_before_brace.rstrip()
+        return f"{stripped} noReentrant {{"
+
+    code = pat.sub(_add_noReentrant, code)
     return code
 
 
@@ -855,27 +1047,61 @@ _NOREENTRANT_BODY = """\
 
 def _fix_missing_noReentrant(code: str) -> str:
     """
-    FIX-14: If `noReentrant` appears in a function signature but no
-    `modifier noReentrant` body exists, inject the canonical body.
+    FIX-14: Ensure the noReentrant modifier is always declared when there
+    are any payable functions (proactive injection).
+
+    Previously only injected when `noReentrant` was already referenced in a
+    function signature but the body was absent — which meant it was a no-op
+    when the LLM produced code with no reentrancy guard at all.
+
+    Now injects whenever:
+      (a) the modifier body is absent, AND
+      (b) there is at least one external/public payable function OR
+          `noReentrant` is already referenced somewhere.
 
     Also ensures:
     - `bool private _locked;` state variable is declared.
     - `error ReentrantCall();` is declared (so the modifier body compiles).
     """
-    used    = bool(re.search(r"\bnoReentrant\b", code))
     defined = bool(re.search(r"modifier\s+noReentrant\s*\(", code))
+    if defined:
+        return code  # already present — nothing to do
 
-    if not used or defined:
-        return code
+    # Determine whether we need the modifier:
+    # • noReentrant is referenced somewhere (old behaviour), OR
+    # • there is at least one payable function (new proactive behaviour)
+    used        = bool(re.search(r"\bnoReentrant\b", code))
+    has_payable = bool(re.search(
+        r"function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b", code, re.DOTALL
+    ))
+
+    if not used and not has_payable:
+        return code  # no payable functions and not referenced — skip
 
     # ── Ensure `bool private _locked;` is at contract scope ─────────────────
     if not re.search(r"bool\s+private\s+_locked\s*;", code):
         inject_lock = "    bool private _locked; // reentrancy guard\n"
         lines = code.splitlines(keepends=True)
+        inserted = False
+        # Prefer to insert just before the constructor
         for i, line in enumerate(lines):
             if re.match(r"\s*constructor\b", line):
                 lines.insert(i, inject_lock)
+                inserted = True
                 break
+        if not inserted:
+            # Fallback: insert just before the first modifier or function
+            for i, line in enumerate(lines):
+                if re.match(r"\s*(modifier|function)\b", line):
+                    lines.insert(i, inject_lock)
+                    inserted = True
+                    break
+        if not inserted:
+            # Last resort: after the contract opening brace
+            for i, line in enumerate(lines):
+                if re.search(r"\bcontract\s+\w+[^{]*\{", line):
+                    lines.insert(i + 1, inject_lock)
+                    break
         code = "".join(lines)
 
     # ── Ensure `error ReentrantCall();` is declared ──────────────────────────
@@ -1033,7 +1259,7 @@ def _fix_undeclared_state_var_refs(code: str) -> str:
     """
     FIX-15: Scan modifier and function bodies for references to common
     party-alias names that are NOT declared state variables.
-    Replace them with the nearest equivalent that IS declared, or remove.
+    Replace them with the nearest declared equivalent.
 
     This catches cases like:
         if (msg.sender != parent || msg.sender == acquisitionSub) revert ...
@@ -1068,6 +1294,75 @@ def _fix_undeclared_state_var_refs(code: str) -> str:
     # Only replace whole-word occurrences
     pattern = r"\b(" + "|".join(re.escape(k) for k in subst.keys()) + r")\b"
     code = re.sub(pattern, _replace_token, code)
+    return code
+
+
+def _fix_company_name_identifiers(code: str) -> str:
+    """
+    FIX-23: Detect ANY undeclared CamelCase/PascalCase identifier used in
+    msg.sender comparisons (e.g. LambdaResourcesUSInc, PiMergerSubLLC) and
+    replace it with the appropriate declared party variable.
+
+    The LLM frequently uses real company names from the contract text directly
+    as Solidity identifiers, causing "Error: Undeclared identifier." at compile
+    time. This fix catches what _fix_undeclared_state_var_refs misses because
+    company names are not in the static _PARTY_ALIASES list.
+
+    Strategy:
+      1. Collect all declared state variable names.
+      2. Scan every `msg.sender [!=|==] <Identifier>` expression.
+      3. If <Identifier> is not declared and looks like a company/entity name
+         (starts with uppercase, length > 4), replace with _partyA or _partyB.
+    """
+    declared = _get_declared_state_vars(code)
+    # Also add known Solidity built-ins and keywords that are always valid
+    solidity_builtins = {
+        "msg", "block", "tx", "address", "uint256", "uint", "int", "bool",
+        "bytes", "string", "true", "false", "this", "super",
+        "_partyA", "_partyB", "_arbitrator", "_locked", "_state",
+        "_amount", "_deadline", "_penaltyRate",
+    }
+    all_known = declared | solidity_builtins
+
+    party_vars = [v for v in ("_partyA", "_partyB", "_arbitrator") if v in declared]
+    if not party_vars:
+        return code  # nothing to substitute with
+
+    # Find all identifiers used in msg.sender comparisons
+    comparison_pat = re.compile(
+        r'msg\.sender\s*(?:!=|==)\s*([A-Za-z_]\w*)',
+    )
+
+    replacements: dict[str, str] = {}
+    seen_order: list[str] = []
+
+    for m in comparison_pat.finditer(code):
+        ident = m.group(1)
+        if ident in all_known:
+            continue  # properly declared — skip
+        # Looks like a company name (PascalCase, length > 3)?
+        if len(ident) > 3 and ident[0].isupper() and ident not in replacements:
+            replacements[ident] = None  # placeholder
+            seen_order.append(ident)
+
+    if not replacements:
+        return code
+
+    # Assign substitutions in order of first appearance:
+    # first unknown  → _partyA, second → _partyB, rest → last party var
+    for i, name in enumerate(seen_order):
+        if i == 0 and len(party_vars) >= 1:
+            replacements[name] = party_vars[0]
+        elif i == 1 and len(party_vars) >= 2:
+            replacements[name] = party_vars[1]
+        else:
+            replacements[name] = party_vars[-1]
+
+    def _replace(m: re.Match) -> str:
+        return replacements.get(m.group(0), m.group(0))
+
+    pattern = r"\b(" + "|".join(re.escape(k) for k in replacements) + r")\b"
+    code = re.sub(pattern, _replace, code)
     return code
 
 
@@ -1266,8 +1561,11 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = raw_code
     # ── Phase 1: structural cleanup ──────────────────────────────────────
     code = _strip_existing_banner(code)
+    code = _fix_duplicate_banner(code)            # FIX-29: remove duplicate ====banners
     code = _fix_spdx(code)
     code = _fix_pragma(code)
+    code = _fix_assert_calls(code)                # FIX-24: assert() → if(!..) revert
+    code = _fix_msg_value_lte_zero(code)          # FIX-28: msg.value<=0 → msg.value==0
     code = _fix_safemath(code)
     code = _fix_openzeppelin_imports(code)
     code = _fix_selfdestruct(code)
@@ -1283,16 +1581,20 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     # ── Phase 3: resolve "Identifier not found" errors ───────────────────
     code = _fix_party_var_naming(code)            # FIX-21: partyA → _partyA everywhere
     code = _fix_undeclared_state_var_refs(code)  # FIX-15: replace bad party aliases
+    code = _fix_company_name_identifiers(code)   # FIX-23: replace undeclared CamelCase company names
     code = _fix_broken_onlyParties(code)         # FIX-16: rewrite broken modifier bodies
     code = _fix_modifier_ordering(code)          # FIX-22: hoist modifiers before functions
     code = _fix_receive_body(code)               # FIX-19: fix receive() calling internal fns
     code = _fix_return_in_non_returning_fn(code) # FIX-20: drop return stmts in void fns
     code = _fix_missing_noReentrant(code)        # FIX-14: inject missing noReentrant body
-    code = _fix_payable_noReentrant(code)         # FIX-18: apply noReentrant to payable fns
+    code = _fix_payable_noReentrant(code)        # FIX-18: apply noReentrant to payable fns
     code = _fix_missing_custom_errors(code)      # FIX-12: declare all revert targets
     code = _fix_missing_events(code)             # FIX-13: declare all emit targets
 
     # ── Phase 4: inject missing required constructs ──────────────────────
+    code = _fix_party_declarations(code)          # FIX-25: inject _partyA/_partyB if missing
+    code = _fix_state_var_declaration(code)       # FIX-26: inject ContractState _state if missing
+    code = _fix_onlyPartyA_modifier(code)         # FIX-27: inject onlyPartyA if used but missing
     code = _fix_locked_declaration(code)
     code = _fix_onlyX_modifiers(code)
     code = _fix_governing_law_constant(code, doc)
@@ -1301,13 +1603,15 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = _fix_msg_value_validation(code)       # NEW: SEC-004 msg.value guard
     code = _fix_expiry_deadline(code)            # NEW: COV-020 _deadline injection
     code = _fix_payable_and_receive(code)        # FIX-11 (updated)
-    code = _fix_payable_noReentrant(code)         # Re-run: cover any newly injected payable fns
+    code = _fix_missing_noReentrant(code)        # Re-run: cover payable fns injected above
+    code = _fix_payable_noReentrant(code)        # Re-run: cover any newly injected payable fns
     code = _add_receive_if_missing(code)
 
     # ── Phase 5: documentation + formatting ──────────────────────────────
     code = _fix_natspec_comments(code)           # NEW: SOL-013 ≥8 @notice
     code = _fix_trailing_whitespace(code)
     code = _add_version_comment(code, doc)
+    code = _fix_duplicate_banner(code)            # Re-run: catch banner added by _add_version_comment
     return code
 
 

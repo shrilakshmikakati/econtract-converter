@@ -152,15 +152,36 @@ MANDATORY SOLIDITY 0.8.16 RULES — follow EVERY rule, no exceptions:
     Declare ALL of them at the top of the contract body even if you are not
     sure whether they will be used. Missing error declarations are compile errors.
 
-29. MODIFIER REFERENCES — ABSOLUTE RULE:
-    Access-control modifiers MUST ONLY reference state variables that are
-    declared in the same contract. ALWAYS use `_partyA`, `_partyB`,
-    `_arbitrator` in modifier bodies. NEVER use undeclared names like
-    `company`, `parent`, `acquisitionSub`, `buyer`, `seller`, etc.:
-        WRONG: if (msg.sender != parent || msg.sender == acquisitionSub) revert ...
+29. IDENTIFIER DECLARATION — ABSOLUTE RULE:
+    Every identifier used in the contract MUST be declared before use.
+    Solidity will refuse to compile ANY undeclared identifier with:
+        "Error: Undeclared identifier."
+
+    PARTY / COMPANY NAMES — THE MOST COMMON MISTAKE:
+    The real-world party names from the contract (e.g. "LambdaResourcesUSInc",
+    "PiMergerSubLLC", "AcmeCorp", "ParentCo") are NOT valid Solidity identifiers.
+    They are human-readable labels only. Do NOT use them as variable names.
+
+    ALWAYS store party addresses as `_partyA` and `_partyB`:
+        WRONG: if (msg.sender != LambdaResourcesUSInc) revert Unauthorized();
+        WRONG: if (msg.sender != PiMergerSubLLC)       revert Unauthorized();
         RIGHT: if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized();
-    If the contract involves a merger or acquisition, still map the parties to
-    `_partyA` (acquirer/parent) and `_partyB` (target/company) in the constructor.
+
+    Map the real names to canonical vars in the constructor comment only:
+        constructor(address payable partyA_, address payable partyB_, ...) {
+            _partyA = partyA_;   // LambdaResourcesUSInc
+            _partyB = partyB_;   // PiMergerSubLLC
+            ...
+        }
+
+    Access-control modifiers MUST ONLY reference declared state variables.
+    NEVER use company, parent, acquisitionSub, buyer, seller, or ANY
+    CamelCase company/entity name from the contract text as a Solidity identifier.
+    ALWAYS use: _partyA, _partyB, _arbitrator (which ARE declared state vars).
+
+    SELF-CHECK before output: for every identifier in every modifier and
+    function body, confirm it is declared as a state variable, parameter,
+    local variable, or a Solidity built-in (msg, block, address, etc.).
 
 30. IMMUTABLE VARIABLES — ABSOLUTE RULE:
     `immutable` variables CANNOT be assigned an expression inline at declaration.

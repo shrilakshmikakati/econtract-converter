@@ -21,6 +21,15 @@ CHANGES vs previous version:
            k) Missing GOVERNING_LAW string constant (LEG-020).
            l) Missing startDate / effectiveDate declaration (LEG-030).
            m) Fewer than 8 @notice NatSpec comments (SOL-013).
+
+  FIX-8  [ASSERT-AWARE] assert() calls are NO LONGER flagged or removed.
+         assertionInjector1.cpp deliberately injects:
+           assert(!(condition))      — BMC/CHC reachability probe
+           assert(!(!(condition)))   — BMC/CHC satisfiability probe
+         before every if/require/while/for condition, then invokes the
+         solc model checker (--model-checker-engine bmc or chc).
+         The pragma is also rewritten to >=0.4.24 by the injector.
+         Both of these must pass through the postprocessor unchanged.
 """
 
 from __future__ import annotations
@@ -58,7 +67,7 @@ RECOMMENDED_MODELS = [
     "mistral:7b",
     "gemma:7b",
 ]
-DEFAULT_MODEL   = "llama3.1:8b "
+DEFAULT_MODEL   = "qwen2.5-coder:7b"
 CONNECT_TIMEOUT = 10
 REQUEST_TIMEOUT = 300
 MAX_RETRIES     = 3
@@ -116,8 +125,12 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
         issues.append("Missing SPDX license identifier")
     if "pragma solidity" not in code:
         issues.append("Missing pragma statement")
-    elif "0.8" not in code:
-        issues.append("Wrong Solidity version (expected 0.8.x)")
+    # NOTE: after assertionInjector1.cpp runs, the pragma becomes >=0.4.24
+    # which does NOT contain "0.8". Only flag the version when it contains
+    # an explicit version string that is not 0.8.x AND not the injector pragma.
+    elif not re.search(r"pragma\s+solidity\s+.*0\.8", code) and \
+         not re.search(r"pragma\s+solidity\s+>=0\.4", code):
+        issues.append("Wrong Solidity version (expected ^0.8.16 or >=0.4.24)")
     if "contract " not in code:
         issues.append("No contract definition found")
     if "constructor" not in code:

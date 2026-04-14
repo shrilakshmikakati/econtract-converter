@@ -95,7 +95,7 @@ logger = logging.getLogger("econtract")
 BANNER = r"""
 ╔══════════════════════════════════════════════════════════════════╗
 ║   eContract → Smart Contract Converter  v3.0                     ║
-║   Solidity 0.8.16  |  Local LLM (Ollama)     ║
+║   Solidity 0.8.16  |   LLM                                       ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -638,8 +638,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", default="./Results",
                    help="Output root directory (default: ./Results)")
     p.add_argument("-m", "--model",
-                   default=os.environ.get("LLM_MODEL", "llama3.1:8b"),
-                   help="LLM model name (default: llama3.1:8b)")
+                   default=os.environ.get("LLM_MODEL", "qwen2.5-coder:7b"),
+                   help="LLM model name (default: qwen2.5-coder:7b)")
     p.add_argument("--backend", choices=["ollama", "openai"],
                    default=os.environ.get("LLM_BACKEND", "ollama"))
     p.add_argument("--ollama-url",
