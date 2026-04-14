@@ -125,7 +125,15 @@ def compile_with_solc(solidity_code: str) -> Tuple[bool, str]:
     """
     solc_path = _find_solc()
     if solc_path is None:
-        return True, ""   
+        msg = (
+            "solc not found on PATH — cannot verify compile. "
+            "Install with: pip install solc-select && "
+            "solc-select install 0.8.16 && solc-select use 0.8.16"
+        )
+        logger.warning(msg)
+        # Return False so convergence is BLOCKED — we must never allow
+        # assertion injection on a contract that has not been compiler-verified.
+        return False, f"[solc-missing] {msg}"
 
     with tempfile.NamedTemporaryFile(
         suffix=".sol", mode="w", encoding="utf-8", delete=False
@@ -175,18 +183,21 @@ def _has_converged_with_solc(
     structural_issues: list,
     solc_errors: list,
     target_accuracy: float,
+    solc_ok: bool = False,
 ) -> bool:
     """
-    Extended convergence check that also requires a clean solc compile.
-    All three gates must pass:
+    Extended convergence check — ALL four gates must pass:
       1. No structural issues (validate_solidity_output)
-      2. No critical validation failures AND accuracy >= target
-      3. No solc compile errors
+      2. No critical validation failures
+      3. Accuracy >= target
+      4. solc compiled cleanly (zero errors AND solc was found on PATH)
+         — if solc is missing, solc_ok=False so we never falsely converge.
     """
     return (
         len(structural_issues) == 0
         and report.critical_failures == 0
         and report.accuracy_overall >= target_accuracy
+        and solc_ok                        # False when solc missing OR has errors
         and len(solc_errors) == 0
     )
 
@@ -264,7 +275,8 @@ def run_pipeline_with_feedback(
 
         elapsed   = time.time() - t0
         converged = _has_converged_with_solc(
-            report, structural_issues, solc_errors, target_accuracy
+            report, structural_issues, solc_errors, target_accuracy,
+            solc_ok=solc_ok,
         )
 
         # Track best
