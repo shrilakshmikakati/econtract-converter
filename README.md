@@ -1,7 +1,7 @@
 # eContract → Smart Contract Converter
 
 **Production-ready** tool that converts electronic contracts (`.docx` / `.txt`) into
-**Solidity 0.8.16** smart contracts using a **local LLM** (Ollama + `qwen2.5-coder:7b`).
+**Solidity 0.8.16** smart contracts using a **local LLM**.
 
 ---
 
@@ -73,9 +73,9 @@ ollama serve
 ### 3. Convert a contract
 
 ```bash
-./econtract.sh my_contract.docx
-./econtract.sh my_contract.txt
-./econtract.sh service_agreement.docx --output ./output --print-code
+./convert.sh my_contract.docx
+./convert.sh my_contract.txt
+./convert.sh service_agreement.docx --output ./output --print-code
 ```
 
 ---
@@ -144,7 +144,7 @@ Every generated contract includes:
 ## CLI Reference
 
 ```
-./econtract.sh <input_file> [options]
+./convert.sh <input_file> [options]
 
 Options:
   -o, --output DIR       Output directory (default: ./output)
@@ -166,16 +166,6 @@ Options:
 ```bash
 python3 econtract_converter.py contract.txt
 ```
-
----
-
-## Model Selection Guide
-
-| Model | RAM needed | Speed | Accuracy |
-|-------|-----------|-------|----------|
-| `qwen2.5-coder:7b`  | ~6 GB  | ~5-7 min | Good  |
-
-
 ---
 
 ## Environment Variables
@@ -245,16 +235,13 @@ professional code review. The generated contracts have not been audited.
 
 ```
 econtract_converter/
-├── econtract.sh              ← Main shell entrypoint
+├── convert.sh              ← Main shell entrypoint
 ├── econtract_converter.py    ← Python CLI orchestrator
 ├── src/
 │   ├── extractor.py          ← Document parser & preprocessor
 │   ├── prompt_builder.py     ← LLM prompt engineering
 │   ├── llm_client.py         ← Ollama / OpenAI LLM client
 │   └── postprocessor.py      ← Solidity fixer & output writer
-├── tests/
-│   ├── test_pipeline.py      ← Test suite (23 tests)
-│   └── sample_service_agreement.txt
 ├── config/
 │   └── econtract_converter.conf
 └── output/                   ← Generated files
