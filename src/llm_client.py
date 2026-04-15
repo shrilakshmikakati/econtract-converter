@@ -45,15 +45,6 @@ from typing import Optional
 import requests
 
 logger = logging.getLogger("econtract.llm")
-from pathlib import Path
-import subprocess
-import platform
-
-if "microsoft-standard" in platform.uname().release.lower():
-    OLLAMA_EXECUTABLE = Path("/mnt/d/ollama.exe")
-else:
-    OLLAMA_EXECUTABLE = Path("D:/ollama.exe")
-
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -70,7 +61,7 @@ RECOMMENDED_MODELS = [
 DEFAULT_MODEL   = "qwen2.5-coder:7b"
 CONNECT_TIMEOUT = 10
 REQUEST_TIMEOUT = 300
-MAX_RETRIES     = 3
+MAX_RETRIES     = 5
 RETRY_DELAY     = 5
 MAX_TOKENS      = 4096
 
@@ -191,19 +182,36 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
             "Remove `view` from its signature."
         )
 
-    # ── FIX-7f: msg.value in a view/pure function ──────────────────────────
-    # Simple heuristic: find functions marked view that contain msg.value
-    view_fns = re.finditer(
-        r"function\s+\w+\s*\([^)]*\)[^{]*\bview\b[^{]*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}",
-        code, re.DOTALL,
+    # ── FIX-7f: msg.value in a non-payable function ───────────────────────
+    # Scan every function signature; if the body uses msg.value and the
+    # function is NOT marked payable, report a compile error.
+    # Uses a depth-aware body extractor so nested braces are handled correctly.
+    _fn_head_pat = re.compile(
+        r'function\s+(\w+)\s*\([^)]*\)([^{]*)\{',
+        re.DOTALL,
     )
-    for vfn in view_fns:
-        if "msg.value" in vfn.group(1):
-            fn_match = re.search(r"function\s+(\w+)", vfn.group(0))
-            fn_name = fn_match.group(1) if fn_match else "unknown"
+    for _fh in _fn_head_pat.finditer(code):
+        _sig_tail = _fh.group(2)   # modifiers / visibility / returns between ) and {
+        _full_sig  = _fh.group(0)
+        if re.search(r'\bpayable\b', _full_sig):
+            continue  # payable — msg.value is fine
+        # Extract body depth-aware
+        _body_start = _fh.end()
+        _depth = 1
+        _j = _body_start
+        while _j < len(code) and _depth:
+            if code[_j] == '{':
+                _depth += 1
+            elif code[_j] == '}':
+                _depth -= 1
+            _j += 1
+        _body = code[_body_start:_j - 1]
+        if 'msg.value' in _body:
+            _is_view = bool(re.search(r'\b(view|pure)\b', _full_sig))
+            _qualifier = 'view/pure' if _is_view else 'non-payable'
             issues.append(
-                f"`msg.value` used inside view function `{fn_name}()` — compile error. "
-                "Either make it payable or replace msg.value with a uint256 parameter."
+                f"`msg.value` used inside {_qualifier} function `{_fh.group(1)}()` — compile error. "
+                "Mark the function `payable` or remove the msg.value reference."
             )
 
     # ── FIX-7g: SEC-001 — bool private _locked at contract scope ──────────
@@ -268,13 +276,22 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
     #   if (!(partyA == address(0)) revert Unauthorized() && partyB == ...)
     # This is produced when the naive require-regex truncated on the first `)`
     # inside a nested call like address(0) and left the rest dangling.
+    #
+    # IMPORTANT: this is a regex heuristic and can produce false positives when
+    # the pattern spans nested-paren constructs that are actually valid Solidity
+    # (e.g. a revert inside a ternary argument).  We therefore classify the
+    # issue as a SOFT structural warning rather than a hard blocker:
+    #   - It is still reported so the repair prompt includes it.
+    #   - But it must NOT override convergence when solc itself compiles clean
+    #     (see _has_converged_with_solc in econtract_converter.py).
+    # The caller is responsible for separating hard (solc) issues from soft ones.
     bad_revert_inside_expr = re.findall(
-        r'\)\s+revert\s+\w+\s*\([^)]*\)\s*(?:&&|\|\||,)',
+        r'\)\s+revert\s+\w+\s*\([^;{]*?\)\s*(?:&&|\|\||,)',
         code,
     )
     if bad_revert_inside_expr:
         issues.append(
-            f"Malformed if-revert syntax ({len(bad_revert_inside_expr)} occurrence(s)): "
+            f"[SOFT] Malformed if-revert syntax ({len(bad_revert_inside_expr)} occurrence(s)): "
             "`revert` found inside a condition expression (e.g. `...) revert Err() && ...`). "
             "This is a compile error. Each guard must be a standalone statement: "
             "`if (!condition) revert Error();`  "
@@ -383,13 +400,15 @@ class OllamaClient:
         return False
 
     def pull_model(self) -> bool:
-        if not OLLAMA_EXECUTABLE.exists():
-            logger.error(f"Ollama executable not found at {OLLAMA_EXECUTABLE}")
+        import shutil
+        ollama_exe = shutil.which("ollama")
+        if not ollama_exe:
+            logger.error("Ollama executable not found on PATH. Install from https://ollama.com")
             return False
         logger.info(f"Pulling model '{self.cfg.model}'...")
         try:
             with subprocess.Popen(
-                [str(OLLAMA_EXECUTABLE), "pull", self.cfg.model],
+                [ollama_exe, "pull", self.cfg.model],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             ) as proc:

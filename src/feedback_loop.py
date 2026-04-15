@@ -61,7 +61,7 @@ logger = logging.getLogger("econtract.feedback_loop")
 #  Configuration defaults
 # ═══════════════════════════════════════════════════════════════════════════
 
-MAX_FEEDBACK_ITERATIONS = 3
+MAX_FEEDBACK_ITERATIONS = 5
 TARGET_ACCURACY         = 100.0   # percentage; loop exits when reached
 
 
@@ -131,9 +131,14 @@ def _has_converged(
     structural_issues: list,
     target_accuracy: float,
 ) -> bool:
-    """All three gates must pass before we stop the loop."""
+    """All three gates must pass before we stop the loop.
+
+    [SOFT] prefixed issues are regex heuristics and do NOT block convergence
+    on their own — only hard structural errors do.
+    """
+    hard_issues = [i for i in structural_issues if not i.startswith("[SOFT]")]
     return (
-        len(structural_issues) == 0
+        len(hard_issues) == 0
         and report.critical_failures == 0
         and report.accuracy_overall >= target_accuracy
     )
@@ -237,6 +242,14 @@ MANDATORY SELF-CHECK BEFORE OUTPUT
 □  string public constant GOVERNING_LAW = "..." declared
 □  All revert targets declared as: error Name(...);
 □  All emit targets declared as: event Name(...);
+□  UNDECLARED IDENTIFIER CHECK: every identifier in every modifier body
+   MUST be a declared state var (_partyA, _partyB, _arbitrator, etc.).
+   NEVER use company/entity names (CamelCase) directly — use _partyA/_partyB.
+□  CONFIDENTIALITY (COV-050): if contract has confidentiality clause,
+   the word 'nonDisclos' or 'confidential' MUST appear in the code.
+   Required: bool private _confidentialityAcknowledged;
+             event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);
+             function acknowledgeNonDisclosure() external onlyParties {{ ... }}
 
 {'━'*70}
 CURRENT (FAILING) CONTRACT — REPAIR THIS
@@ -418,9 +431,17 @@ def run_feedback_loop(
             break   # exhausted — fall through to return best
 
         if verbose:
+            has_soft_only = all(i.startswith("[SOFT]") for i in structural_issues)
+            reason = []
+            if report.accuracy_overall < target_accuracy:
+                reason.append(f"accuracy {report.accuracy_overall:.1f}% < {target_accuracy:.0f}%")
+            if report.critical_failures:
+                reason.append(f"{report.critical_failures} critical failure(s)")
+            if structural_issues and not has_soft_only:
+                reason.append(f"{len(structural_issues)} structural issue(s)")
+            reason_str = " | ".join(reason) if reason else "structural issues remain"
             print(
-                f"\n{_YLW}  → Accuracy {report.accuracy_overall:.1f}% < "
-                f"{target_accuracy:.0f}%.  "
+                f"\n{_YLW}  → {reason_str}.  "
                 f"Sending repair prompt (iteration {iteration + 1})…{_RST}"
             )
 
@@ -521,7 +542,7 @@ def print_feedback_summary(result: FeedbackLoopResult) -> None:
     print(f"\n{sep}")
     print("  FEEDBACK LOOP — FINAL SUMMARY")
     print(sep)
-    status = " CONVERGED" if result.converged else "⚠️  MAX ITERATIONS REACHED"
+    status = " CONVERGED" if result.converged else " MAX ITERATIONS REACHED"
     print(f"  Status          : {status}")
     print(f"  Iterations used : {result.iterations_used}")
     print(f"  Best accuracy   : {result.best_accuracy:.1f}%")

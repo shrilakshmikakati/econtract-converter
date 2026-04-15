@@ -1,0 +1,6 @@
+Error: Expected primary expression.
+  --> Results/contract_17-bmc/Assert/contract_17.sol:39:129:
+   |
+39 |         if (!(msg.sender == _arbitrator) && !(msg.sender == _arbitrator) && !(msg.sender == _arbitrator)) revert Unauthorized();;
+   |                                                                                                                                 ^
+

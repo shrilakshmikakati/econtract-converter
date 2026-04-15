@@ -1,0 +1,16 @@
+	assert(!(!(msg.sender == _partyA) ));
+	assert(!(!(!(msg.sender == _partyA) )));
+	assert(!( !(msg.sender == _partyB)));
+	assert(!(!( !(msg.sender == _partyB))));
+	assert(!(msg.sender != _arbitrator));
+	assert(!(!(msg.sender != _arbitrator)));
+	assert(!(_locked));
+	assert(!(!(_locked)));
+	assert(!(!(principal > 0) ));
+	assert(!(!(!(principal > 0) )));
+	assert(!( !(rate > 0)));
+	assert(!(!( !(rate > 0))));
+	assert(!(_locked));
+	assert(!(!(_locked)));
+	assert(!(msg.value == 0));
+	assert(!(!(msg.value == 0)));

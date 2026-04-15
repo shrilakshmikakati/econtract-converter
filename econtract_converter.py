@@ -52,23 +52,26 @@ from typing import Optional, Tuple
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from extractor import extract_contract, SUPPORTED_EXTENSIONS
-from prompt_builder import build_user_prompt, get_system_prompt, build_validation_prompt
-from llm_client import LLMClient, LLMConfig, validate_solidity_output
+from feedback_loop import (
+    MAX_FEEDBACK_ITERATIONS,
+    TARGET_ACCURACY,
+    FeedbackLoopResult,
+    IterationResult,
+    build_repair_prompt,
+    print_feedback_summary,
+    _print_iteration_banner,
+    generate_and_refine,
+    run_feedback_loop,
+)
+from llm_client import LLMClient, LLMConfig, extract_solidity, validate_solidity_output
 from postprocessor import (
     apply_all_fixes,
     save_solidity,
     save_report,
     run_contract_validation,
 )
-from feedback_loop import (
-    generate_and_refine,
-    run_feedback_loop,
-    print_feedback_summary,
-    FeedbackLoopResult,
-    build_repair_prompt,
-    MAX_FEEDBACK_ITERATIONS,
-    TARGET_ACCURACY,
-)
+from prompt_builder import get_system_prompt, build_user_prompt, build_validation_prompt
+from test_contract_validator import run_all_validations
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -87,21 +90,22 @@ def setup_logging(verbose: bool, log_file: Path = None) -> None:
 
 logger = logging.getLogger("econtract")
 
+# ── ANSI colour codes ───────────────────────────────────────────────────────
+_CYN = "\033[96m"
+_GRN = "\033[92m"
+_YLW = "\033[93m"
+_RED = "\033[91m"
+_RST = "\033[0m"
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  Banner
-# ═══════════════════════════════════════════════════════════════════════════
+# ── Banner ──────────────────────────────────────────────────────────────────
+BANNER = """========================================
+ E-Contract → Solidity Converter
+========================================
 
-BANNER = r"""
-╔══════════════════════════════════════════════════════════════════╗
-║   eContract → Smart Contract Converter  v3.0                     ║
-║   Solidity 0.8.16  |   LLM                                       ║
-╚══════════════════════════════════════════════════════════════════╝
-"""
-
-# ANSI helpers
-_RST = "\033[0m";  _GRN = "\033[92m";  _RED = "\033[91m";  _YLW = "\033[93m"
-_CYN = "\033[96m"; _BLD = "\033[1m"
+╔══════════════════════════════════════════════════════════════╗
+║          E-Contract → Solidity Converter  v3.0               ║
+║     generate → solc compile → validate → repair loop         ║
+╚══════════════════════════════════════════════════════════════╝"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -131,8 +135,6 @@ def compile_with_solc(solidity_code: str) -> Tuple[bool, str]:
             "solc-select install 0.8.16 && solc-select use 0.8.16"
         )
         logger.warning(msg)
-        # Return False so convergence is BLOCKED — we must never allow
-        # assertion injection on a contract that has not been compiler-verified.
         return False, f"[solc-missing] {msg}"
 
     with tempfile.NamedTemporaryFile(
@@ -186,15 +188,27 @@ def _has_converged_with_solc(
     solc_ok: bool = False,
 ) -> bool:
     """
-    Extended convergence check — ALL four gates must pass:
-      1. No structural issues (validate_solidity_output)
+    Extended convergence check.
+
+    Hard gates (must ALL pass):
+      1. No *hard* structural issues (i.e. issues not prefixed with [SOFT])
       2. No critical validation failures
       3. Accuracy >= target
       4. solc compiled cleanly (zero errors AND solc was found on PATH)
-         — if solc is missing, solc_ok=False so we never falsely converge.
+         -- if solc is missing, solc_ok=False so we never falsely converge.
+
+    Soft / heuristic issues (prefixed with [SOFT]) are excluded from the
+    convergence gate when solc itself reports zero errors.  This prevents
+    regex false-positives (e.g. the malformed if-revert detector) from
+    blocking an already compiler-valid contract indefinitely.
     """
+    # Separate regex-heuristic warnings from hard structural errors.
+    hard_issues = [i for i in structural_issues
+                   if not i.startswith("[SOFT]")]
+    # When solc is clean, soft issues are informational only.
+    effective_issues = hard_issues if (solc_ok and len(solc_errors) == 0) else structural_issues
     return (
-        len(structural_issues) == 0
+        len(effective_issues) == 0
         and report.critical_failures == 0
         and report.accuracy_overall >= target_accuracy
         and solc_ok                        # False when solc missing OR has errors
@@ -383,7 +397,7 @@ def run_pipeline_with_feedback(
     # ── Exhausted all iterations ───────────────────────────────────────────
     if verbose:
         print(f"\n{_YLW}{'━'*70}")
-        print(f"  ⚠️  Max iterations ({max_iterations}) reached.")
+        print(f"  Max iterations ({max_iterations}) reached.")
         print(f"  Best accuracy achieved: {best_accuracy:.1f}%")
         print(f"  Returning best contract seen so far.")
         print(f"{'━'*70}{_RST}\n")
@@ -608,11 +622,16 @@ def run_pipeline_for_file(input_file: Path, args: argparse.Namespace) -> int:
         print("═" * 70)
         print(final_code)
 
-    # Exit code
+   
     if validation_report and validation_report.critical_failures > 0:
         return 3
-    if not _ok or not solc_success:
+    if not solc_success:
         return 2
+    hard_issues = [i for i in (final_issues or []) if not i.startswith("[SOFT]")]
+    if hard_issues:
+        return 2
+    if final_issues:
+        return 1
     return 0
 
 

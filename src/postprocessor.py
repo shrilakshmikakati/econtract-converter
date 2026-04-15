@@ -1,49 +1,14 @@
 """
-postprocessor.py — Cleans raw LLM output, applies deterministic Solidity
-fixes, and generates the final output artefacts.
+postprocessor.py — Cleans raw LLM output, applies deterministic Solidity fixes,
+and generates final output artefacts.
 
-ASSERT-AWARE VERSION
-====================
-assert() calls are INTENTIONALLY PRESERVED throughout this postprocessor.
+Pipeline: LLM → postprocessor (this file) → assertionInjector1.cpp
+                                                    ↓
+                                         solc --model-checker-engine bmc/chc
 
-assertionInjector1.cpp injects the following probe pairs before every
-if / require / while / for condition in the .sol file:
-
-    assert(!(condition));       ← BMC/CHC reachability probe
-    assert(!(!(condition)));    ← BMC/CHC satisfiability probe
-
-It also rewrites the pragma to `pragma solidity >=0.4.24;` so that
-solc's model checker accepts the file.
-
-The pipeline is:
-    LLM → postprocessor (this file) → assertionInjector1.cpp
-                                              ↓
-                                   solc --model-checker-engine bmc/chc
-                                              ↓
-                                     results/<name>-bmc/ or -chc/
-
-The postprocessor runs BEFORE the injector, so at this stage the .sol
-contains no assert() calls yet.  _fix_assert_calls() is a no-op here
-to ensure that if any assert() somehow appears in LLM output it is also
-left alone (the verifier will handle it correctly either way).
-
-FIXES:
-  1–4.  SPDX, pragma (all operators: >=, <=, ^, ~, bare), safemath, OZ,
-        selfdestruct, tx.origin
-  5.    _fix_calculatePenalty_view — remove view from calculatePenalty()
-  6.    _fix_locked_declaration — ensure bool private _locked at contract scope
-  7.    _fix_onlyX_modifiers — ensure ≥2 onlyX modifiers
-  8.    _fix_governing_law_constant — inject GOVERNING_LAW constant (full
-        jurisdiction name, not just first word)
-  9.    _fix_start_date — inject startDate immutable
-  10.   _fix_require_to_custom_errors — convert remaining require() calls
-  11.   _fix_payable_and_receive — inject pay/receive if missing
-  12.   _fix_missing_custom_errors — declare all revert targets
-  13.   _fix_missing_events — declare all emit targets
-  14.   _fix_missing_noReentrant — inject noReentrant body if missing
-  15.   _fix_undeclared_state_vars — replace undeclared party aliases
-  16.   _fix_broken_onlyParties — rewrite broken modifier bodies
-  17.   _fix_immutable_init — fix inline immutable initialisation
+assert() calls are INTENTIONALLY PRESERVED. assertionInjector1.cpp injects
+probe pairs before every if/require/while/for condition. The postprocessor
+runs BEFORE the injector, so _fix_assert_calls() is a no-op.
 """
 
 from __future__ import annotations
@@ -57,67 +22,65 @@ from typing import Optional
 from extractor import ContractDocument
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  Helpers
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _contract_body(code: str) -> tuple[str, int]:
-    """Return (body_text, offset) of the outermost contract body."""
-    m = re.search(r"\bcontract\s+\w+[^{]*\{", code)
-    if m:
-        return code[m.end():], m.end()
-    return code, 0
+def _get_declared_state_vars(code: str) -> set[str]:
+    """Return names of all declared state variables (and enum/event/error/modifier/function names)."""
+    names: set[str] = set()
+    for m in re.finditer(
+        r"^\s*(?:address|uint\d*|int\d*|bool|bytes\d*|string|mapping|enum\s+\w+)\s+"
+        r"(?:payable\s+)?(?:private|public|internal)?\s*(?:immutable\s+|constant\s+)?(\w+)\s*[;=]",
+        code, re.MULTILINE,
+    ):
+        names.add(m.group(1))
+    for m in re.finditer(
+        r"^\s*(?:ContractState|\w+State)\s+(?:public|private|internal)?\s*(\w+)\s*[;=]",
+        code, re.MULTILINE,
+    ):
+        names.add(m.group(1))
+    return names
 
 
 def _declared_identifiers(code: str) -> set[str]:
-    """
-    Return the set of all top-level identifiers declared in the contract:
-    state variables, events, errors, modifiers, functions.
-    """
-    ids: set[str] = set()
-    # state vars: type [visibility] name ;
-    for m in re.finditer(
-        r"^\s*(?:address|uint\d*|int\d*|bool|bytes\d*|string|mapping)\s+"
-        r"(?:payable\s+)?(?:private|public|internal|external\s+)?(?:immutable\s+|constant\s+)?(\w+)",
-        code, re.MULTILINE,
-    ):
-        ids.add(m.group(1))
-    # enum names + their members
-    for m in re.finditer(r"\benum\s+(\w+)", code):
-        ids.add(m.group(1))
-    # event names
-    for m in re.finditer(r"\bevent\s+(\w+)", code):
-        ids.add(m.group(1))
-    # error names
-    for m in re.finditer(r"\berror\s+(\w+)", code):
-        ids.add(m.group(1))
-    # modifier names
-    for m in re.finditer(r"\bmodifier\s+(\w+)", code):
-        ids.add(m.group(1))
-    # function names
-    for m in re.finditer(r"\bfunction\s+(\w+)", code):
-        ids.add(m.group(1))
-    # constructor (special)
+    """Return all top-level identifiers (state vars, events, errors, modifiers, functions)."""
+    ids = _get_declared_state_vars(code)
+    for pattern in (r"\benum\s+(\w+)", r"\bevent\s+(\w+)", r"\berror\s+(\w+)",
+                    r"\bmodifier\s+(\w+)", r"\bfunction\s+(\w+)"):
+        for m in re.finditer(pattern, code):
+            ids.add(m.group(1))
     ids.add("constructor")
     return ids
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  Basic fixes (unchanged from previous version)
-# ═══════════════════════════════════════════════════════════════════════════
+def _extract_balanced(src: str, start: int) -> str:
+    """Return full substring from opening '(' at start to its matching ')'."""
+    depth = 0
+    for i in range(start, len(src)):
+        if src[i] == '(':
+            depth += 1
+        elif src[i] == ')':
+            depth -= 1
+            if depth == 0:
+                return src[start:i + 1]
+    return src[start:]
+
+
+def _insert_before_first(code: str, pattern: str, text: str) -> str:
+    """Insert text before first line matching pattern. Fallback: after contract brace."""
+    lines = code.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if re.match(pattern, line):
+            lines.insert(i, text)
+            return "".join(lines)
+    m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
+    if m:
+        return code[:m.end()] + text + code[m.end():]
+    return code
+
+def _fix_spdx(code: str) -> str:
+    if "SPDX-License-Identifier" not in code:
+        code = "// SPDX-License-Identifier: MIT\n" + code
+    return code
 
 def _fix_pragma(code: str) -> str:
-    """
-    Normalise the Solidity pragma to ^0.8.16.
-
-    The assertionInjector1.cpp tool rewrites the pragma to
-    `pragma solidity >=0.4.24;` before running BMC/CHC.  When we are
-    processing the LLM output (before injection) we want ^0.8.16.
-
-    Matches ALL operator variants: ^, ~, >=, <=, >, <, = or bare version.
-    The old regex `[\^~]?` missed `>=` and `<=`, leaving the pragma unchanged.
-    """
-    # Match pragma with any comparison operator or none
     code = re.sub(
         r"pragma\s+solidity\s+(?:[><=^~!]+\s*)?\d+\.\d+(?:\.\d+)?\s*;",
         "pragma solidity ^0.8.16;",
@@ -131,16 +94,8 @@ def _fix_pragma(code: str) -> str:
         )
     return code
 
-
-def _fix_spdx(code: str) -> str:
-    if "SPDX-License-Identifier" not in code:
-        code = "// SPDX-License-Identifier: MIT\n" + code
-    return code
-
-
 def _fix_trailing_whitespace(code: str) -> str:
     return "\n".join(ln.rstrip() for ln in code.splitlines()).strip() + "\n"
-
 
 def _fix_safemath(code: str) -> str:
     code = re.sub(r'import\s+["\'].*[Ss]afe[Mm]ath.*["\'];\n?', "", code)
@@ -153,7 +108,6 @@ def _fix_openzeppelin_imports(code: str) -> str:
     code = re.sub(r"\bis\s+(?:Ownable|ReentrancyGuard|Pausable)\b", "", code)
     return code
 
-
 def _fix_selfdestruct(code: str) -> str:
     return re.sub(
         r"selfdestruct\s*\([^)]*\)\s*;",
@@ -161,29 +115,15 @@ def _fix_selfdestruct(code: str) -> str:
         code,
     )
 
-
 def _fix_tx_origin(code: str) -> str:
     return re.sub(r"\btx\.origin\b", "msg.sender /* was tx.origin — fixed */", code)
 
-
 def _fix_assert_calls(code: str) -> str:
-    """
-    NO-OP: assert() calls are intentionally preserved.
-
-    assert(!(condition)) and assert(!(!(condition))) pairs are injected by
-    assertionInjector1.cpp as formal-verification probes for BMC/CHC solvers
-    (e.g. solc --model-checker-engine bmc/chc).  The postprocessor must never
-    remove, rewrite, or convert them — doing so would silently destroy the
-    verification harness.
-
-    The pragma is also kept as >=0.4.24 (written by the injector) so that
-    solc's model checker accepts the file without a version mismatch.
-    """
+    """NO-OP: assert() calls are intentionally preserved for BMC/CHC verification."""
     return code
 
 
 def _fix_noReentrant_modifier(code: str) -> str:
-    """Remove erroneous parameters from noReentrant modifier signature."""
     code = re.sub(
         r"modifier\s+noReentrant\s*\(\s*bool\s+storage\s+\w+\s*\)",
         "modifier noReentrant()",
@@ -191,278 +131,294 @@ def _fix_noReentrant_modifier(code: str) -> str:
     )
     return code
 
-
 def _fix_mapping_return(code: str) -> str:
-    code = re.sub(r",?\s*mapping\s*\([^)]+\)[^,)]*(?=\s*[,)])", "", code)
-    return code
+    return re.sub(r",?\s*mapping\s*\([^)]+\)[^,)]*(?=\s*[,)])", "", code)
 
 
 def _fix_calculatePenalty_view(code: str) -> str:
-    """Remove `view` from calculatePenalty() — it emits events."""
     code = re.sub(
         r"(function\s+calculatePenalty\s*\([^)]*\)\s+(?:external|public)\s+)view\s+",
-        r"\1",
-        code,
+        r"\1", code,
     )
-    # Also handle: external view returns pattern
     code = re.sub(
         r"(function\s+calculatePenalty\s*\([^)]*\)[^{]*)\bview\b(\s+returns)",
-        r"\1\2",
-        code,
+        r"\1\2", code,
     )
-    return code
-
-
-def _fix_locked_declaration(code: str) -> str:
-    """Ensure `bool private _locked;` is declared at contract scope."""
-    if re.search(r"bool\s+private\s+_locked\s*;", code):
-        return code
-    inject = "    bool private _locked; // reentrancy guard\n"
-    lines = code.splitlines(keepends=True)
-    insert_idx = None
-    in_contract = False
-    for i, line in enumerate(lines):
-        if re.match(r"\s*contract\s+\w+", line):
-            in_contract = True
-        if in_contract and re.match(r"\s*(modifier|constructor)\b", line):
-            insert_idx = i
-            break
-    if insert_idx is not None:
-        lines.insert(insert_idx, inject)
-        return "".join(lines)
-    return code
-
-
-def _fix_party_declarations(code: str) -> str:
-    """
-    FIX-25: If _partyA or _partyB are referenced anywhere (state assignments,
-    modifier bodies, function bodies) but NOT declared as state variables,
-    inject canonical declarations before the first modifier/constructor.
-    """
-    def _has_decl(var: str) -> bool:
-        return bool(re.search(
-            rf'address\s+(?:payable\s+)?(?:private|public|internal)\s+{re.escape(var)}\s*[;=]',
-            code,
-        ))
-
-    need_a = '_partyA' in code and not _has_decl('_partyA')
-    need_b = '_partyB' in code and not _has_decl('_partyB')
-
-    if not need_a and not need_b:
-        return code
-
-    inject = ""
-    if need_a:
-        inject += "    address payable private _partyA;\n"
-    if need_b:
-        inject += "    address payable private _partyB;\n"
-
-    lines = code.splitlines(keepends=True)
-    for i, line in enumerate(lines):
-        if re.match(r"\s*(modifier|constructor)\b", line):
-            lines.insert(i, inject)
-            return "".join(lines)
-    # Fallback: after contract opening brace
-    m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
-    if m:
-        return code[:m.end()] + inject + code[m.end():]
-    return code
-
-
-def _fix_state_var_declaration(code: str) -> str:
-    """
-    FIX-26: If `_state` (ContractState) is referenced but not declared,
-    inject `ContractState private _state = ContractState.Created;`.
-    Also ensures ContractState enum exists.
-    """
-    has_enum  = bool(re.search(r'\benum\s+ContractState\b', code))
-    has_state = bool(re.search(
-        r'ContractState\s+(?:private|public|internal)\s+_state\b', code
-    ))
-    # _state used but not declared
-    if '_state' not in code or has_state:
-        return code
-
-    # Inject enum if missing
-    if not has_enum:
-        enum_block = (
-            "    enum ContractState { Created, Active, Completed, Disputed, Terminated }\n"
-        )
-        m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
-        if m:
-            code = code[:m.end()] + enum_block + code[m.end():]
-
-    # Inject _state declaration before first modifier/constructor
-    decl = "    ContractState private _state = ContractState.Created;\n"
-    lines = code.splitlines(keepends=True)
-    for i, line in enumerate(lines):
-        if re.match(r"\s*(modifier|constructor)\b", line):
-            lines.insert(i, decl)
-            return "".join(lines)
-    return code
-
-
-def _fix_onlyPartyA_modifier(code: str) -> str:
-    """
-    FIX-27: If `onlyPartyA` modifier is used in function signatures but not
-    declared, inject it — provided _partyA is declared.
-    """
-    used    = bool(re.search(r'\bonlyPartyA\b', code))
-    defined = bool(re.search(r'modifier\s+onlyPartyA\s*\(', code))
-    if not used or defined:
-        return code
-
-    declared = _get_declared_state_vars(code)
-    party = '_partyA' if '_partyA' in declared else None
-    if not party:
-        return code
-
-    mod = (
-        f"    modifier onlyPartyA() {{\n"
-        f"        if (msg.sender != {party}) revert Unauthorized();\n"
-        f"        _;\n"
-        f"    }}\n"
-    )
-    # Insert before first function
-    lines = code.splitlines(keepends=True)
-    for i, line in enumerate(lines):
-        if re.match(r"\s*function\s+\w+", line):
-            lines.insert(i, mod)
-            return "".join(lines)
-    return code
-
-
-def _fix_msg_value_lte_zero(code: str) -> str:
-    """
-    FIX-28: `msg.value <= 0` is always false because msg.value is uint256
-    (can never be negative). Replace with `msg.value == 0`.
-    Similarly `msg.value < 0` → `false` (also always false).
-    """
-    code = re.sub(r'\bmsg\.value\s*<=\s*0\b', 'msg.value == 0', code)
-    code = re.sub(r'\bmsg\.value\s*<\s*0\b',  'false',          code)
     return code
 
 
 def _fix_duplicate_banner(code: str) -> str:
-    """
-    FIX-29: Remove duplicate banner comment blocks. The LLM sometimes
-    re-emits the banner on repair iterations, producing two identical
-    =====...===== / Generated: blocks. Keep only the first one.
-    """
-    # Match the full banner block: // ===...=== ... // ===...===
     banner_pat = re.compile(
-        r'(//\s*={10,}[^\n]*\n'   # opening ====
-        r'(?://[^\n]*\n)+'        # interior comment lines
-        r'//\s*={10,}[^\n]*\n)',  # closing ====
+        r'(//\s*={10,}[^\n]*\n(?://[^\n]*\n)+//\s*={10,}[^\n]*\n)',
         re.MULTILINE,
     )
     matches = list(banner_pat.finditer(code))
-    if len(matches) <= 1:
-        return code
-    # Remove all but the first banner
     for m in reversed(matches[1:]):
         code = code[:m.start()] + code[m.end():]
     return code
 
 
-def _fix_governing_law_constant(code: str, doc: ContractDocument) -> str:
-    if "GOVERNING_LAW" in code:
+def _strip_existing_banner(code: str) -> str:
+    lines = code.splitlines(keepends=True)
+    spdx_idx = next((i for i, l in enumerate(lines) if "SPDX-License-Identifier" in l), None)
+    if spdx_idx is None or spdx_idx == 0:
         return code
-    gov = (doc.governing_law or "").strip()
-    if not gov:
-        return code
-    # Strip common legal preamble fragments so we get the actual jurisdiction,
-    # e.g. "governed by the laws of the State of Delaware" → "Delaware"
-    #      "and New York law" → "New York"
-    gov_clean = re.sub(
-        r"(?i)^(?:and\s+)?(?:the\s+)?(?:laws?\s+of\s+(?:the\s+)?(?:state\s+of\s+)?)?",
-        "",
-        gov,
-    ).strip()
-    # Drop trailing " law" or " laws"
-    gov_clean = re.sub(r"(?i)\s+laws?$", "", gov_clean).strip()
-    # Use the full cleaned string (multi-word jurisdictions like "New York" are valid)
-    jurisdiction = gov_clean if gov_clean else "Unknown"
-    constant_line = f'    string public constant GOVERNING_LAW = "{jurisdiction}";\n'
-    m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
-    if m:
-        code = code[:m.end()] + constant_line + code[m.end():]
-    else:
-        m = re.search(r"(pragma\s+solidity[^\n]+\n)", code)
-        if m:
-            code = code[:m.end()] + constant_line + code[m.end():]
+    pre = lines[:spdx_idx]
+    if all(l.strip() == "" or l.strip().startswith("//") for l in pre):
+        return "".join(lines[spdx_idx:])
     return code
 
 
-def _fix_start_date(code: str) -> str:
-    """
-    Inject `uint256 public immutable startDate` if missing.
-    FIX-17: Also repair `uint256 public immutable startDate = EFFECTIVE_DATE;`
-    — immutables cannot be initialised with a constant expression in-line;
-    they must be assigned in the constructor.
-    """
-    # Repair inline initialisation: immutable startDate = EFFECTIVE_DATE;
-    # Strip the RHS so it becomes `uint256 public immutable startDate;`
-    inline_fixed = bool(re.search(
-        r"uint256\s+public\s+immutable\s+startDate\s*=\s*EFFECTIVE_DATE\s*;",
-        code,
-    ))
+def _fix_msg_value_lte_zero(code: str) -> str:
+    code = re.sub(r'\bmsg\.value\s*<=\s*0\b', 'msg.value == 0', code)
+    code = re.sub(r'\bmsg\.value\s*<\s*0\b', 'false', code)
+    return code
+
+
+def _fix_bare_locked(code: str) -> str:
+    if not re.search(r"\bbool\b[^;]+\b_locked\b", code) and "bool private _locked" not in code:
+        return code
+    return re.sub(r'(?<!_)\blocked\b', '_locked', code)
+
+
+def _fix_contractstate_type(code: str) -> str:
     code = re.sub(
-        r"(uint256\s+public\s+immutable\s+startDate)\s*=\s*EFFECTIVE_DATE\s*;",
-        r"\1;",
-        code,
+        r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*=\s*ContractState\.)',
+        r'ContractState\1\2', code,
+    )
+    code = re.sub(
+        r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*;)',
+        r'ContractState\1\2', code,
+    )
+    return code
+
+
+_PARTY_ALIASES = [
+    "parent", "acquisitionSub", "mergerSub", "buyer", "seller",
+    "employer", "employee", "licensor", "licensee", "lessor", "lessee",
+    "borrower", "lender", "owner", "developer", "client", "vendor",
+    "partyA", "partyB", "party1", "party2",
+    "company", "acquirer", "target", "subsidiary", "holdco", "newco",
+    "mergerParty", "mergee", "parentCo", "subCo",
+]
+
+
+def _fix_party_var_naming(code: str) -> str:
+    for bare, canonical in [("partyA", "_partyA"), ("partyB", "_partyB")]:
+        if re.search(rf'\b{canonical}\b', code):
+            continue
+        if re.search(rf'\b{bare}\b', code):
+            code = re.sub(rf'\b{bare}\b', canonical, code)
+    return code
+
+
+def _fix_undeclared_state_var_refs(code: str) -> str:
+    declared = _get_declared_state_vars(code)
+    party_vars = [v for v in ("_partyA", "_partyB", "_arbitrator") if v in declared]
+    subst: dict[str, str] = {}
+    for i, alias in enumerate(_PARTY_ALIASES):
+        if alias in declared:
+            continue
+        if i == 0 and len(party_vars) >= 1:
+            subst[alias] = party_vars[0]
+        elif i == 1 and len(party_vars) >= 2:
+            subst[alias] = party_vars[1]
+        elif party_vars:
+            subst[alias] = party_vars[-1]
+    if not subst:
+        return code
+    pattern = r"\b(" + "|".join(re.escape(k) for k in subst.keys()) + r")\b"
+    return re.sub(pattern, lambda m: subst.get(m.group(0), m.group(0)), code)
+
+
+def _fix_company_name_identifiers(code: str) -> str:
+    declared = _get_declared_state_vars(code)
+    solidity_builtins = {
+        "msg", "block", "tx", "address", "uint256", "uint", "int", "bool",
+        "bytes", "string", "true", "false", "this", "super",
+        "_partyA", "_partyB", "_arbitrator", "_locked", "_state",
+        "_amount", "_deadline", "_penaltyRate",
+    }
+    all_known = declared | solidity_builtins
+    party_vars = [v for v in ("_partyA", "_partyB", "_arbitrator") if v in declared]
+    if not party_vars:
+        return code
+    replacements: dict[str, str] = {}
+    seen_order: list[str] = []
+    for m in re.finditer(r'msg\.sender\s*(?:!=|==)\s*([A-Za-z_]\w*)', code):
+        ident = m.group(1)
+        if ident in all_known or ident in replacements:
+            continue
+        if len(ident) > 3 and ident[0].isupper():
+            replacements[ident] = None
+            seen_order.append(ident)
+    if not replacements:
+        return code
+    for i, name in enumerate(seen_order):
+        replacements[name] = party_vars[min(i, len(party_vars) - 1)]
+    pattern = r"\b(" + "|".join(re.escape(k) for k in replacements) + r")\b"
+    return re.sub(pattern, lambda m: replacements.get(m.group(0), m.group(0)), code)
+
+
+def _fix_undeclared_identifiers_in_modifiers(code: str) -> str:
+    declared = _declared_identifiers(code)
+    builtins = {"msg", "block", "tx", "address", "this", "type", "abi",
+                "revert", "emit", "return", "true", "false"}
+
+    def _safe(ident: str) -> bool:
+        return ident in declared or ident in builtins or ident.startswith("_")
+
+    def _fix_body(mod_m: re.Match) -> str:
+        body = mod_m.group(0)
+        body = re.sub(
+            r"(msg\.sender\s*[!=]=\s*)(\w+)",
+            lambda m: m.group(0) if _safe(m.group(2)) else m.group(1) + "_partyA",
+            body,
+        )
+        body = re.sub(
+            r"(\w+)(\s*[!=]=\s*msg\.sender)",
+            lambda m: m.group(0) if _safe(m.group(1)) else "_partyA" + m.group(2),
+            body,
+        )
+        return body
+
+    return re.sub(
+        r"modifier\s+\w+\s*\([^)]*\)\s*\{[^}]*\}",
+        _fix_body, code, flags=re.DOTALL,
     )
 
-    has_start_date = bool(re.search(r"\bstartDate\b", code))
-    has_effective_date = bool(re.search(r"\beffectiveDate\b", code))
 
-    if has_start_date or has_effective_date:
-        # Ensure constructor assignment exists (needed after stripping inline init)
-        if has_start_date and "startDate = EFFECTIVE_DATE" not in code:
-            ctor = re.search(r"constructor\s*\([^)]*\)[^{]*\{", code)
-            if ctor:
-                code = (
-                    code[: ctor.end()]
-                    + "\n        startDate = EFFECTIVE_DATE;"
-                    + code[ctor.end():]
-                )
-        return code
+def _fix_undeclared_param_refs(code: str) -> str:
+    """Fix parameter name mismatches (amount_ vs amount) inside function bodies."""
+    repairs: list[tuple[int, int, str]] = []
+    fn_pat = re.compile(r'function\s+\w+\s*\(([^)]*)\)([^{]*)\{', re.DOTALL)
 
-    if "EFFECTIVE_DATE" not in code:
-        return code
+    for m in fn_pat.finditer(code):
+        params_str = m.group(1)
+        fn_start = m.end()
+        depth, j = 1, fn_start
+        while j < len(code) and depth:
+            if code[j] == '{': depth += 1
+            elif code[j] == '}': depth -= 1
+            j += 1
+        body = code[fn_start:j - 1]
+        param_names = [
+            tokens[-1].strip()
+            for p in params_str.split(',')
+            if (tokens := p.split()) and
+               re.match(r'^[a-zA-Z_]\w*$', tokens[-1].strip()) and
+               tokens[-1].strip() not in ('memory', 'storage', 'calldata', 'payable', 'indexed')
+        ]
+        new_body = body
+        for name in param_names:
+            alt = name[:-1] if name.endswith('_') else (name[1:] if name.startswith('_') else name + '_')
+            if re.search(rf'\b{re.escape(alt)}\b', new_body) and not re.search(rf'\b{re.escape(name)}\b', new_body):
+                new_body = re.sub(rf'\b{re.escape(alt)}\b', name, new_body)
+        if new_body != body:
+            repairs.append((fn_start, j - 1, new_body))
 
-    decl = "    uint256 public immutable startDate;\n"
-    m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
-    if m:
-        code = code[: m.end()] + decl + code[m.end():]
-
-    ctor = re.search(r"constructor\s*\([^)]*\)[^{]*\{", code)
-    if ctor:
-        code = (
-            code[: ctor.end()]
-            + "\n        startDate = EFFECTIVE_DATE;"
-            + code[ctor.end():]
-        )
+    for start, end, new_body in reversed(repairs):
+        code = code[:start] + new_body + code[end:]
     return code
+
+
+def _fix_broken_onlyParties(code: str) -> str:
+    declared = _get_declared_state_vars(code)
+
+    def _safe_condition() -> str:
+        parties = [v for v in ("_partyA", "_partyB") if v in declared]
+        if len(parties) == 2:
+            return f"if (msg.sender != {parties[0]} && msg.sender != {parties[1]}) revert Unauthorized();"
+        if len(parties) == 1:
+            return f"if (msg.sender != {parties[0]}) revert Unauthorized();"
+        if "_arbitrator" in declared:
+            return "if (msg.sender != _arbitrator) revert Unauthorized();"
+        return "// access check skipped — no party addresses declared"
+
+    pat = re.compile(r'modifier\s+only(?:Parties|Party\w*)\s*\(\s*\)', re.DOTALL)
+    result, pos = [], 0
+    for mhead in pat.finditer(code):
+        result.append(code[pos:mhead.end()])
+        brace_m = re.search(r'\{', code[mhead.end():])
+        if not brace_m:
+            pos = mhead.end()
+            continue
+        brace_start = mhead.end() + brace_m.start()
+        result.append(code[mhead.end():brace_start])
+        depth, j = 0, brace_start
+        while j < len(code):
+            ch = code[j]
+            if ch == '{': depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    mod_block = code[brace_start:j + 1]
+                    cond_m = re.search(r"\{(.*?)_\s*;", mod_block, re.DOTALL)
+                    if cond_m:
+                        bad = [t for t in re.findall(r"\b([a-zA-Z_]\w*)\b", cond_m.group(1))
+                               if t in _PARTY_ALIASES and t not in declared]
+                        if bad:
+                            mod_block = f" {{\n        {_safe_condition()}\n        _;\n    }}"
+                    result.append(mod_block)
+                    pos = j + 1
+                    break
+            j += 1
+        else:
+            pos = mhead.end()
+    result.append(code[pos:])
+    return "".join(result)
+
+
+def _fix_modifier_ordering(code: str) -> str:
+    first_fn = re.search(r'\n    function\s+\w+', code)
+    if not first_fn:
+        return code
+    modifier_pat = re.compile(r'\n(    modifier\s+\w+[^{]*\{(?:[^{}]|\{[^}]*\})*\})', re.DOTALL)
+    to_move = [(m.start(), m.end(), m.group(0)) for m in modifier_pat.finditer(code) if m.start() > first_fn.start()]
+    if not to_move:
+        return code
+    for start, end, _ in reversed(to_move):
+        code = code[:start] + code[end:]
+    first_fn = re.search(r'\n    function\s+\w+', code)
+    if not first_fn:
+        return code
+    block = "".join(text for _, _, text in to_move)
+    return code[:first_fn.start()] + block + code[first_fn.start():]
+
+
+def _fix_receive_body(code: str) -> str:
+    def _fix(m: re.Match) -> str:
+        body = m.group(1)
+        if re.search(r'\b(?!emit|revert|if|require)\w+\s*\(', body):
+            if "PaymentReceived" in code:
+                safe = "        emit PaymentReceived(msg.sender, msg.value);\n    "
+            elif "PaymentMade" in code:
+                safe = "        emit PaymentMade(msg.sender, msg.value);\n    "
+            else:
+                safe = "        // ETH received\n    "
+            return m.group(0).replace(body, safe)
+        return m.group(0)
+    return re.sub(r'receive\s*\(\s*\)\s+external\s+payable\s*\{([^}]*)\}', _fix, code, flags=re.DOTALL)
+
+
+def _fix_return_in_non_returning_fn(code: str) -> str:
+    def _strip(m: re.Match) -> str:
+        fn_head, body = m.group(1), m.group(2)
+        if re.search(r'\breturns\s*\(', fn_head):
+            return m.group(0)
+        new_body = re.sub(r'\n?\s*return\s+[^;]+;\n?', '\n', body)
+        return m.group(0) if new_body == body else fn_head + "{\n" + new_body + "    }"
+    return re.sub(
+        r'(function\s+\w+[^{]+)\{\n((?:[^{}]|\{[^}]*\})*?)\n    \}',
+        _strip, code, flags=re.DOTALL,
+    )
 
 
 def _parse_require_args(src: str, start: int) -> tuple[str, str] | None:
-    """
-    Parse the arguments of a require(...) call starting at `start` (the index
-    of the opening parenthesis).  Returns (condition, message) or None if the
-    call cannot be parsed.  Correctly handles nested parentheses such as
-    address(0), keccak256(...), etc.
-    """
-    depth = 0
-    i = start
-    n = len(src)
-    parts: list[str] = []
-    seg_start = start + 1  # skip the opening '('
-
+    depth, i, n, parts, seg_start = 0, start, len(src), [], start + 1
     while i < n:
         c = src[i]
-        if c == '(':
-            depth += 1
+        if c == '(': depth += 1
         elif c == ')':
             depth -= 1
             if depth == 0:
@@ -472,116 +428,63 @@ def _parse_require_args(src: str, start: int) -> tuple[str, str] | None:
             parts.append(src[seg_start:i])
             seg_start = i + 1
         i += 1
-
     if not parts:
         return None
-
-    condition = parts[0].strip()
-    message   = parts[1].strip().strip('"\'') if len(parts) > 1 else ""
-    return condition, message
+    return parts[0].strip(), (parts[1].strip().strip('"\'') if len(parts) > 1 else "")
 
 
 def _negate_condition(condition: str) -> str:
-    """
-    Return the logical negation of a Solidity boolean expression.
-
-    Simple atomic conditions are inverted by flipping the operator.
-    Compound conditions (containing && or || at the top level, i.e. not
-    inside nested parentheses) are wrapped in !(…) to avoid incorrectly
-    dropping terms.
-    """
     stripped = condition.strip()
-
-    # Check for top-level && or || (not inside nested parens)
     depth = 0
     for ch in stripped:
-        if ch == '(':
-            depth += 1
-        elif ch == ')':
-            depth -= 1
+        if ch == '(': depth += 1
+        elif ch == ')': depth -= 1
         elif depth == 0 and stripped[stripped.index(ch):].startswith(('&&', '||')):
-            # Compound condition — wrap the whole thing
             return f"!({stripped})"
-
-    # Remove a single wrapping pair of parens if present
     while stripped.startswith("(") and stripped.endswith(")"):
-        # Verify the parens are actually matching
         depth2 = 0
         for i, ch in enumerate(stripped):
-            if ch == '(':
-                depth2 += 1
+            if ch == '(': depth2 += 1
             elif ch == ')':
                 depth2 -= 1
                 if depth2 == 0 and i < len(stripped) - 1:
-                    break  # closing paren is not the last char → don't strip
+                    break
         else:
             stripped = stripped[1:-1].strip()
             continue
         break
-
     if stripped.startswith("!"):
         inner = stripped[1:].strip()
         if inner.startswith("(") and inner.endswith(")"):
             inner = inner[1:-1].strip()
         return inner
-    if " == " in stripped:
-        return stripped.replace(" == ", " != ", 1)
-    if " != " in stripped:
-        return stripped.replace(" != ", " == ", 1)
-    if " >= " in stripped:
-        return stripped.replace(" >= ", " < ", 1)
-    if " <= " in stripped:
-        return stripped.replace(" <= ", " > ", 1)
-    if " > " in stripped:
-        return stripped.replace(" > ", " <= ", 1)
-    if " < " in stripped:
-        return stripped.replace(" < ", " >= ", 1)
+    for old, new in ((" == ", " != "), (" != ", " == "), (" >= ", " < "),
+                     (" <= ", " > "), (" > ", " <= "), (" < ", " >= ")):
+        if old in stripped:
+            return stripped.replace(old, new, 1)
     return f"!({stripped})"
 
 
 def _fix_require_to_custom_errors(code: str) -> str:
-    """
-    Convert ALL remaining require() calls to the custom-error pattern.
-
-    Uses a parenthesis-depth-aware parser instead of a naive [^,)] regex so
-    that nested calls like address(0), keccak256(...), abi.encode(...) are
-    handled correctly and never produce malformed output such as:
-        if (!(partyA == address(0)) revert Unauthorized() && partyB == address(0), ...)
-    """
-    result = []
-    i = 0
-    n = len(code)
-
+    result, i, n = [], 0, len(code)
     while i < n:
-        # Look for `require` as a whole word
         m = re.search(r'\brequire\s*\(', code[i:])
         if not m:
             result.append(code[i:])
             break
-
-        # Append everything up to (and including) the chars before `require`
         pre_start = i + m.start()
         result.append(code[i:pre_start])
-
-        paren_open = i + m.end() - 1  # index of the '(' in require(
+        paren_open = i + m.end() - 1
         parsed = _parse_require_args(code, paren_open)
-
         if parsed is None:
-            # Cannot parse — emit as-is and advance past the keyword
-            result.append(code[pre_start: i + m.end()])
+            result.append(code[pre_start:i + m.end()])
             i = i + m.end()
             continue
-
-        condition, _message = parsed
-        neg = _negate_condition(condition)
-        result.append(f"if ({neg}) revert Unauthorized()")
-
-        # Advance past the closing ')' of the require(...)
-        depth = 0
-        j = paren_open
+        condition, _ = parsed
+        result.append(f"if ({_negate_condition(condition)}) revert Unauthorized();")
+        depth, j = 0, paren_open
         while j < n:
-            if code[j] == '(':
-                depth += 1
+            if code[j] == '(': depth += 1
             elif code[j] == ')':
                 depth -= 1
                 if depth == 0:
@@ -589,338 +492,282 @@ def _fix_require_to_custom_errors(code: str) -> str:
                     break
             j += 1
         i = j
-
     return "".join(result)
 
 
-def _fix_bare_locked(code: str) -> str:
-    """
-    The LLM sometimes uses bare `locked` (without underscore) inside
-    receive() and modifier bodies instead of `_locked`.
-    Replace every whole-word `locked` that is NOT already preceded by `_`
-    with `_locked`, but ONLY if `bool private _locked` is declared (or will
-    be injected) — so we don't rename unrelated variables.
-    """
-    # Only act when the canonical declaration is present (or will be injected)
-    if not re.search(r"\bbool\b[^;]+\b_locked\b", code) and "bool private _locked" not in code:
+def _fix_malformed_if_revert(code: str) -> str:
+    bad_sentinel = re.compile(r'\)\s+revert\s+\w+\s*\([^;{]*\)\s*(?:&&|\|\|)')
+    if not bad_sentinel.search(code):
         return code
-    # Replace `locked` that is not preceded by `_`
-    code = re.sub(r'(?<!_)\blocked\b', '_locked', code)
-    return code
 
-
-def _fix_contractstate_type(code: str) -> str:
-    """
-    The LLM sometimes declares `uint256 public contractState = ContractState.Created;`
-    which is a type-mismatch compile error.  Rewrite to use the enum type.
-    """
-    # uint256 [visibility] contractState = ContractState.xxx  →  ContractState [visibility] contractState
-    code = re.sub(
-        r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*=\s*ContractState\.)',
-        r'ContractState\1\2',
-        code,
-    )
-    # Also catch: uint256 contractState; with no initialiser then assigned ContractState.xxx
-    code = re.sub(
-        r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*;)',
-        r'ContractState\1\2',
-        code,
-    )
-    return code
-
-
-def _fix_msg_value_validation(code: str) -> str:
-    """
-    SEC-004: ensure every external payable function validates msg.value.
-    If a payable function body contains no `msg.value` comparison, inject
-    a guard immediately after the opening brace.
-    """
-    def _add_value_check(m: re.Match) -> str:
-        fn_head = m.group(0)        # everything up to and including the '{'
-        body_start = m.end()
-        # Find closing brace of this function (depth-aware)
-        depth = 1
-        j = body_start
-        src = m.string
-        while j < len(src) and depth:
-            if src[j] == '{':
-                depth += 1
-            elif src[j] == '}':
+    def _parse_line(line: str):
+        m_if = re.search(r'\bif\s*\(', line)
+        if not m_if:
+            return None
+        start, depth, i, n = m_if.end(), 1, m_if.end(), len(line)
+        outer_end = None
+        while i < n:
+            ch = line[i]
+            if ch == '(': depth += 1
+            elif ch == ')':
                 depth -= 1
-            j += 1
-        body = src[body_start:j - 1]
-        if re.search(r'msg\.value\s*[=!<>]', body):
-            return fn_head          # already validates — leave alone
-        guard = "\n        if (msg.value == 0) revert InsufficientPayment(msg.value, 0);"
-        return fn_head + guard
+                if depth == 0:
+                    outer_end = i
+                    break
+            i += 1
+        if outer_end is None:
+            return None
+        inner = line[start:outer_end]
+        err_m = re.search(r'\brevert\s+(\w+)\s*\(', inner)
+        if not err_m:
+            return None
+        err_name = err_m.group(1)
 
-    code = re.sub(
-        r'function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\{',
-        _add_value_check,
-        code,
-    )
-    return code
+        def _strip_reverts(s: str) -> str:
+            res, j, sn = [], 0, len(s)
+            while j < sn:
+                rev_m = re.search(r'\brevert\s+\w+\s*\(', s[j:])
+                if not rev_m:
+                    res.append(s[j:])
+                    break
+                res.append(s[j:j + rev_m.start()])
+                k, d = j + rev_m.end(), 1
+                while k < sn and d > 0:
+                    if s[k] == '(': d += 1
+                    elif s[k] == ')': d -= 1
+                    k += 1
+                j = k
+            return ''.join(res)
 
+        def _split_top(s: str) -> list:
+            parts, buf, d, idx, sn2 = [], [], 0, 0, len(s)
+            while idx < sn2:
+                ch = s[idx]
+                if ch == '(': d += 1; buf.append(ch)
+                elif ch == ')': d -= 1; buf.append(ch)
+                elif d == 0 and s[idx:idx + 2] in ('&&', '||'):
+                    tok = ''.join(buf).strip().strip(',').strip()
+                    if tok: parts.append(tok)
+                    buf = []; idx += 2; continue
+                elif d == 0 and ch == ',':
+                    tok = ''.join(buf).strip()
+                    if tok: parts.append(tok)
+                    buf = []
+                else:
+                    buf.append(ch)
+                idx += 1
+            tok = ''.join(buf).strip().strip(',').strip()
+            if tok: parts.append(tok)
+            return [p for p in parts if p]
 
-def _fix_expiry_deadline(code: str) -> str:
-    """
-    COV-020: inject a `uint256 private _deadline;` state variable and a
-    `setDeadline()` function if neither `_deadline` nor `block.timestamp +`
-    appears anywhere in the contract.
-    """
-    has_deadline = bool(
-        re.search(r'\b_deadline\b|\bdeadlineAt\b', code) or
-        re.search(r'block\.timestamp\s*\+', code)
-    )
-    if has_deadline:
-        return code
-
-    decl = "    uint256 private _deadline; // contract expiry (unix timestamp)\n"
-
-    # Only match contract-scope state variable lines: exactly 4 spaces of indent
-    # (function-body lines have 8+ spaces).  Also require a visibility keyword
-    # so we don't accidentally match local variable declarations.
-    last_var = None
-    for m in re.finditer(
-        r'^    (?:address|uint\d*|bool|bytes\d*|string)\s+'
-        r'(?:payable\s+)?(?:private|public|internal)\s+'
-        r'(?:immutable\s+|constant\s+)?\w+\s*[=;][^\n]*\n',
-        code, re.MULTILINE,
-    ):
-        last_var = m
-
-    if last_var:
-        code = code[:last_var.end()] + decl + code[last_var.end():]
-    else:
-        # Fallback: inject right after the contract opening brace line
-        m2 = re.search(r'(\bcontract\s+\w+[^{]*\{[^\n]*\n)', code)
-        if m2:
-            code = code[:m2.end()] + decl + code[m2.end():]
-
-    # Inject setDeadline() before the closing brace of the contract
-    set_fn = (
-        "\n    /// @notice Set the contract expiry deadline (seconds from now).\n"
-        "    function setDeadline(uint256 durationSeconds) external onlyArbitrator {\n"
-        "        _deadline = block.timestamp + durationSeconds;\n"
-        "    }\n"
-    )
-    idx = code.rfind("}")
-    if idx != -1:
-        code = code[:idx] + set_fn + code[idx:]
-    return code
-
-
-def _fix_party_var_naming(code: str) -> str:
-    """
-    FIX-21: The LLM sometimes declares `address private partyA;` and
-    `address private partyB;` (no underscore prefix) instead of `_partyA`
-    and `_partyB`. Rename them everywhere for consistency and to ensure
-    _fix_broken_onlyParties can identify them correctly.
-    """
-    # Only rename if the underscore-prefixed form is NOT already present,
-    # to avoid double-renaming.
-    for bare, canonical in [("partyA", "_partyA"), ("partyB", "_partyB")]:
-        if re.search(rf'\b{canonical}\b', code):
-            continue  # canonical form already present — leave alone
-        if re.search(rf'\b{bare}\b', code):
-            # Rename whole-word occurrences, careful not to hit e.g. `_partyA` or `partyABC`
-            code = re.sub(rf'\b{bare}\b', canonical, code)
-    return code
-
-
-def _fix_modifier_ordering(code: str) -> str:
-    """
-    FIX-22: Modifiers must be declared before the first function that uses
-    them (Solidity requires this when a modifier is used before its declaration
-    in older compiler versions, and it avoids "not yet visible" errors).
-
-    Move all `modifier` blocks to appear before the first `function` definition.
-    """
-    # Find the position of the first `function` keyword at contract scope
-    # (4-space indent, to skip functions inside modifiers/other blocks)
-    first_fn = re.search(r'\n    function\s+\w+', code)
-    if not first_fn:
-        return code
-    first_fn_pos = first_fn.start()
-
-    # Collect all modifier blocks that appear AFTER the first function
-    modifier_pat = re.compile(
-        r'\n(    modifier\s+\w+[^{]*\{(?:[^{}]|\{[^}]*\})*\})',
-        re.DOTALL,
-    )
-
-    modifiers_to_move: list[tuple[int, int, str]] = []
-    for m in modifier_pat.finditer(code):
-        if m.start() > first_fn_pos:
-            modifiers_to_move.append((m.start(), m.end(), m.group(0)))
-
-    if not modifiers_to_move:
-        return code
-
-    # Remove them from their original positions (iterate in reverse)
-    for start, end, _ in reversed(modifiers_to_move):
-        code = code[:start] + code[end:]
-
-    # Re-find first_fn position (offsets changed after removal)
-    first_fn = re.search(r'\n    function\s+\w+', code)
-    if not first_fn:
-        return code
-
-    # Insert all collected modifiers just before the first function
-    insert_pos = first_fn.start()
-    block = "".join(text for _, _, text in modifiers_to_move)
-    code = code[:insert_pos] + block + code[insert_pos:]
-    return code
-
-
-def _fix_receive_body(code: str) -> str:
-    """
-    FIX-19: The LLM sometimes writes receive() bodies that call internal
-    functions like `pay(msg.value)` — this is a compile error because
-    pay() is external and cannot be called internally.
-    Replace any such body with a safe canonical emit.
-    """
-    def _fix_receive(m: re.Match) -> str:
-        body = m.group(1)
-        # If the body calls any function other than emit/revert/if/require, replace it
-        if re.search(r'\b(?!emit|revert|if|require)\w+\s*\(', body):
-            if "PaymentReceived" in code:
-                safe_body = "        emit PaymentReceived(msg.sender, msg.value);\n    "
-            elif "PaymentMade" in code:
-                safe_body = "        emit PaymentMade(msg.sender, msg.value);\n    "
-            else:
-                safe_body = "        // ETH received\n    "
-            return m.group(0).replace(body, safe_body)
-        return m.group(0)
-
-    code = re.sub(
-        r'receive\s*\(\s*\)\s+external\s+payable\s*\{([^}]*)\}',
-        _fix_receive,
-        code,
-        flags=re.DOTALL,
-    )
-    return code
-
-
-def _fix_return_in_non_returning_fn(code: str) -> str:
-    """
-    FIX-20: Remove `return value;` from functions that have no `returns (...)`
-    clause — this is a compile error in Solidity.
-    """
-    def _strip_return(m: re.Match) -> str:
-        fn_head = m.group(1)
-        body    = m.group(2)
-        if re.search(r'\breturns\s*\(', fn_head):
-            return m.group(0)
-        new_body = re.sub(r'\n?\s*return\s+[^;]+;\n?', '\n', body)
-        if new_body == body:
-            return m.group(0)
-        return fn_head + "{\n" + new_body + "    }"
-
-    code = re.sub(
-        r'(function\s+\w+[^{]+)\{\n((?:[^{}]|\{[^}]*\})*?)\n    \}',
-        _strip_return,
-        code,
-        flags=re.DOTALL,
-    )
-    return code
-
-
-def _fix_payable_noReentrant(code: str) -> str:
-    """
-    SEC-003: ensure every external payable function uses the noReentrant modifier.
-    If noReentrant is defined in this contract, add it to any payable function
-    signature that is missing it.
-
-    Uses a char-by-char scan to locate the opening `{` of each payable function
-    signature so the modifier is inserted at exactly the right place, regardless
-    of whether the signature spans one or multiple lines.
-    """
-    if not re.search(r"modifier\s+noReentrant\s*\(", code):
-        return code  # modifier not present — nothing to apply
-
-    # Find every payable function head (up to and including its opening '{')
-    # The DOTALL flag lets [^{]* span newlines inside the signature.
-    pat = re.compile(
-        r'(function\s+(\w+)\s*\([^)]*\)[^{]*\bpayable\b[^{]*)\{',
-        re.DOTALL,
-    )
-
-    def _add_noReentrant(m: re.Match) -> str:
-        sig_before_brace = m.group(1)   # everything before the '{'
-        fn_name          = m.group(2)
-
-        # Already has noReentrant somewhere in the signature?
-        if "noReentrant" in sig_before_brace:
-            return m.group(0)
-
-        # Append noReentrant before the opening brace.
-        # Strip trailing whitespace/newlines from the signature, add the
-        # modifier, then re-open the brace on the same line.
-        stripped = sig_before_brace.rstrip()
-        return f"{stripped} noReentrant {{"
-
-    code = pat.sub(_add_noReentrant, code)
-    return code
-
-
-def _fix_natspec_comments(code: str) -> str:
-    """
-    SOL-013: ensure every public/external function has a /// @notice comment.
-    Count existing ones; if < 8, prepend a generic @notice above each
-    public/external function that is missing one.
-
-    Handles:
-    - Multi-line signatures (modifiers on separate lines before the opening brace)
-    - receive() / fallback() which lack the `function` keyword
-    """
-    MIN_NOTICE = 8
-
-    existing = len(re.findall(r'///\s*@notice', code))
-    if existing >= MIN_NOTICE:
-        return code
+        parts = _split_top(_strip_reverts(inner)) or [inner.strip()]
+        neg_parts = [_negate_condition(p.strip()) if p.strip() else 'true' for p in parts]
+        compound = ' || '.join(neg_parts) or 'true'
+        indent = re.match(r'(^\s*)', line).group(1)
+        suffix = line[outer_end + 1:].strip().lstrip(';').strip()
+        tail = f' {suffix}' if suffix and not suffix.startswith('//') else ''
+        return f'{indent}if ({compound}) revert {err_name}();{tail}'
 
     lines = code.splitlines(keepends=True)
-    out: list[str] = []
-    i = 0
-    added = existing
-
-    while i < len(lines):
-        line = lines[i]
-
-        # Match a `function` keyword on this line that has public/external
-        # visibility declared *anywhere* in the following few lines up to `{`
-        fn_start = re.match(r'(\s*)function\s+(\w+)\s*\(', line)
-        if fn_start and added < MIN_NOTICE:
-            indent   = fn_start.group(1)
-            fn_name  = fn_start.group(2)
-            # Scan ahead (up to 8 lines) to find the visibility and opening `{`
-            look = "".join(lines[i: i + 8])
-            is_public_or_external = bool(re.search(r'\b(public|external)\b', look))
-            has_opening_brace = "{" in look
-            prev = out[-1].rstrip() if out else ""
-            if is_public_or_external and has_opening_brace and "@notice" not in prev:
-                out.append(f"{indent}/// @notice Execute {fn_name} operation.\n")
-                added += 1
-
-        # Also match receive() / fallback() which have no `function` keyword
-        rcv_match = re.match(r'(\s*)(receive|fallback)\s*\(\s*\)\s+external', line)
-        if rcv_match and added < MIN_NOTICE:
-            indent  = rcv_match.group(1)
-            fn_name = rcv_match.group(2)
-            prev = out[-1].rstrip() if out else ""
-            if "@notice" not in prev:
-                out.append(f"{indent}/// @notice {fn_name.capitalize()} ETH deposits.\n")
-                added += 1
-
+    out = []
+    for line in lines:
+        if bad_sentinel.search(line):
+            fixed = _parse_line(line.rstrip('\n\r'))
+            if fixed is not None:
+                ending = '\n' if line.endswith('\n') else ''
+                line = fixed + ending
         out.append(line)
-        i += 1
-
-    return "".join(out)
+    return ''.join(out)
 
 
+def _fix_party_declarations(code: str) -> str:
+    def _has_decl(var: str) -> bool:
+        return bool(re.search(
+            rf'address\s+(?:payable\s+)?(?:private|public|internal)\s+{re.escape(var)}\s*[;=]', code,
+        ))
+    need_a = '_partyA' in code and not _has_decl('_partyA')
+    need_b = '_partyB' in code and not _has_decl('_partyB')
+    if not need_a and not need_b:
+        return code
+    inject = ("    address payable private _partyA;\n" if need_a else "") + \
+             ("    address payable private _partyB;\n" if need_b else "")
+    return _insert_before_first(code, r"\s*(modifier|constructor)\b", inject)
 
-# Known error types with their parameter signatures
+
+def _fix_state_var_declaration(code: str) -> str:
+    has_enum = bool(re.search(r'\benum\s+ContractState\b', code))
+    has_state = bool(re.search(r'ContractState\s+(?:private|public|internal)\s+_state\b', code))
+    if '_state' not in code or has_state:
+        return code
+    if not has_enum:
+        enum_block = "    enum ContractState { Created, Active, Completed, Disputed, Terminated }\n"
+        m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
+        if m:
+            code = code[:m.end()] + enum_block + code[m.end():]
+    return _insert_before_first(
+        code, r"\s*(modifier|constructor)\b",
+        "    ContractState private _state = ContractState.Created;\n",
+    )
+
+
+def _fix_onlyPartyA_modifier(code: str) -> str:
+    if not bool(re.search(r'\bonlyPartyA\b', code)) or bool(re.search(r'modifier\s+onlyPartyA\s*\(', code)):
+        return code
+    declared = _get_declared_state_vars(code)
+    party = '_partyA' if '_partyA' in declared else None
+    if not party:
+        return code
+    mod = (f"    modifier onlyPartyA() {{\n"
+           f"        if (msg.sender != {party}) revert Unauthorized();\n"
+           f"        _;\n    }}\n")
+    return _insert_before_first(code, r"\s*function\s+\w+", mod)
+
+
+def _fix_locked_declaration(code: str) -> str:
+    matches = list(re.finditer(r"[ \t]*bool\s+private\s+_locked\s*;[^\n]*\n?", code))
+    for m in reversed(matches[1:]):
+        code = code[:m.start()] + code[m.end():]
+    if re.search(r"bool\s+private\s+_locked\s*;", code):
+        return code
+    inject = "    bool private _locked; // reentrancy guard\n"
+    lines = code.splitlines(keepends=True)
+    in_contract = False
+    for i, line in enumerate(lines):
+        if re.match(r"\s*contract\s+\w+", line):
+            in_contract = True
+        if in_contract and re.match(r"\s*(modifier|constructor)\b", line):
+            lines.insert(i, inject)
+            return "".join(lines)
+    return code
+
+
+def _fix_duplicate_state_vars(code: str) -> str:
+    decl_pat = re.compile(
+        r'^([ \t]*)(?:address|uint\d*|int\d*|bool|bytes\d*|string|mapping)\s+'
+        r'(?:payable\s+)?(?:private|public|internal|external\s+)?(?:immutable\s+|constant\s+)?(\w+)\s*[;=]',
+        re.MULTILINE,
+    )
+    seen: set[str] = set()
+    result: list[str] = []
+    for line in code.splitlines(keepends=True):
+        m = decl_pat.match(line)
+        if m:
+            var_name = m.group(2)
+            if var_name in seen:
+                continue
+            seen.add(var_name)
+        result.append(line)
+    return "".join(result)
+
+
+def _fix_onlyX_modifiers(code: str) -> str:
+    existing = re.findall(r"modifier\s+only\w+\s*\(", code)
+    if len(existing) >= 2:
+        return code
+    declared = _get_declared_state_vars(code)
+    has_a, has_b, has_arb = "_partyA" in declared, "_partyB" in declared, "_arbitrator" in declared
+    inject_lines: list[str] = []
+    if len(existing) == 0 and has_a and has_b:
+        inject_lines.append(
+            "    modifier onlyParties() {\n"
+            "        if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized();\n"
+            "        _;\n    }\n"
+        )
+    elif len(existing) == 0 and has_arb:
+        inject_lines.append(
+            "    modifier onlyOwner() {\n"
+            "        if (msg.sender != _arbitrator) revert Unauthorized();\n"
+            "        _;\n    }\n"
+        )
+    if len(existing) < 2 and has_arb and not re.search(r"modifier\s+onlyArbitrator", code):
+        inject_lines.append(
+            "    modifier onlyArbitrator() {\n"
+            "        if (msg.sender != _arbitrator) revert Unauthorized();\n"
+            "        _;\n    }\n"
+        )
+    if not inject_lines:
+        return code
+    lines = code.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if re.match(r"\s*(modifier|constructor)\b", line):
+            for j, block in enumerate(inject_lines):
+                lines.insert(i + j, block)
+            return "".join(lines)
+    return code
+
+
+def _fix_governing_law_constant(code: str, doc: ContractDocument) -> str:
+    if "GOVERNING_LAW" in code:
+        return code
+    gov = (doc.governing_law or "").strip()
+    if not gov:
+        return code
+    gov_clean = re.sub(r"(?i)^(?:and\s+)?(?:the\s+)?(?:laws?\s+of\s+(?:the\s+)?(?:state\s+of\s+)?)?", "", gov).strip()
+    gov_clean = re.sub(r"(?i)\s+laws?$", "", gov_clean).strip()
+    jurisdiction = gov_clean or "Unknown"
+    constant_line = f'    string public constant GOVERNING_LAW = "{jurisdiction}";\n'
+    m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
+    if m:
+        return code[:m.end()] + constant_line + code[m.end():]
+    m = re.search(r"(pragma\s+solidity[^\n]+\n)", code)
+    if m:
+        return code[:m.end()] + constant_line + code[m.end():]
+    return code
+
+
+def _fix_start_date(code: str) -> str:
+    code = re.sub(
+        r"(uint256\s+public\s+immutable\s+startDate)\s*=\s*EFFECTIVE_DATE\s*;",
+        r"\1;", code,
+    )
+    has_start_date = bool(re.search(r"\bstartDate\b", code))
+    has_effective_date = bool(re.search(r"\beffectiveDate\b", code))
+    if has_start_date or has_effective_date:
+        if has_start_date and "startDate = EFFECTIVE_DATE" not in code:
+            ctor = re.search(r"constructor\s*\([^)]*\)[^{]*\{", code)
+            if ctor:
+                code = code[:ctor.end()] + "\n        startDate = EFFECTIVE_DATE;" + code[ctor.end():]
+        return code
+    if "EFFECTIVE_DATE" not in code:
+        return code
+    decl = "    uint256 public immutable startDate;\n"
+    m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
+    if m:
+        code = code[:m.end()] + decl + code[m.end():]
+    ctor = re.search(r"constructor\s*\([^)]*\)[^{]*\{", code)
+    if ctor:
+        code = code[:ctor.end()] + "\n        startDate = EFFECTIVE_DATE;" + code[ctor.end():]
+    return code
+
+
+def _fix_confidentiality_acknowledgement(code: str, doc: ContractDocument) -> str:
+    if not any(c.clause_type == "confidential" for c in doc.clauses):
+        return code
+    if re.search(r"confidential|nda|nonDisclos|non_disclos", code, re.I):
+        return code
+    state_var = "    bool private _confidentialityAcknowledged;\n"
+    event_decl = "    event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);\n"
+    fn_body = (
+        "\n    /// @notice Acknowledges the non-disclosure / confidentiality obligation on-chain.\n"
+        "    function acknowledgeNonDisclosure() external onlyParties {\n"
+        "        _confidentialityAcknowledged = true;\n"
+        "        emit NonDisclosureAcknowledged(msg.sender, block.timestamp);\n"
+        "    }\n"
+    )
+    locked_m = re.search(r"(bool\s+private\s+_locked\s*;)", code)
+    if locked_m:
+        code = code[:locked_m.end()] + "\n" + state_var + code[locked_m.end():]
+    last_event = None
+    for m in re.finditer(r"event\s+\w+\s*\([^)]*\)\s*;", code):
+        last_event = m
+    if last_event:
+        code = code[:last_event.end()] + "\n" + event_decl + code[last_event.end():]
+    last_brace = code.rfind("}")
+    if last_brace != -1:
+        code = code[:last_brace] + fn_body + code[last_brace:]
+    return code
+
+
 _KNOWN_ERROR_SIGS: dict[str, str] = {
     "Unauthorized":        "error Unauthorized();",
     "InvalidState":        "error InvalidState(uint8 current, uint8 required);",
@@ -935,56 +782,6 @@ _KNOWN_ERROR_SIGS: dict[str, str] = {
     "OnlyParty":           "error OnlyParty();",
 }
 
-
-def _fix_missing_custom_errors(code: str) -> str:
-    """
-    FIX-12: Find every `revert SomeName(...)` call in the contract.
-    If SomeName is not declared as a custom error, inject its declaration.
-
-    Also proactively injects the full set of standard errors used by the
-    template (Unauthorized, ReentrantCall, etc.) if ANY of them are missing,
-    to avoid compile errors from modifiers and injected boilerplate.
-    """
-    # Collect all revert targets
-    reverted = set(re.findall(r"\brevert\s+(\w+)\s*[;(]", code))
-
-    # Always ensure the core set of errors that our injected modifiers use
-    # are declared, even if the LLM didn't write explicit revert calls yet.
-    core_errors = {
-        "Unauthorized", "ReentrantCall", "InvalidState",
-        "InsufficientPayment", "DeadlinePassed", "AlreadyDisputed",
-    }
-    # Include core errors in the "reverted" set so they get declared
-    reverted |= core_errors
-
-    # Collect already-declared errors
-    declared = set(re.findall(r"\berror\s+(\w+)\s*[;(]", code))
-
-    missing = reverted - declared
-    if not missing:
-        return code
-
-    # Build injection block
-    injections: list[str] = []
-    for name in sorted(missing):
-        sig = _KNOWN_ERROR_SIGS.get(name, f"error {name}();")
-        injections.append(f"    {sig}")
-
-    inject_block = "\n".join(injections) + "\n"
-
-    # Inject after the contract opening brace, before any existing declarations
-    m = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
-    if m:
-        pos = m.end()
-        code = code[:pos] + "\n" + inject_block + code[pos:]
-    return code
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  NEW FIX-13: Ensure all emitted events are declared
-# ═══════════════════════════════════════════════════════════════════════════
-
-# Canonical signatures for commonly emitted events
 _KNOWN_EVENT_SIGS: dict[str, str] = {
     "PaymentReceived":      "event PaymentReceived(address indexed from, uint256 amount);",
     "PaymentMade":          "event PaymentMade(address indexed payer, uint256 amount);",
@@ -997,45 +794,43 @@ _KNOWN_EVENT_SIGS: dict[str, str] = {
 }
 
 
-def _fix_missing_events(code: str) -> str:
-    """
-    FIX-13: Find every `emit SomeName(...)` call.
-    If SomeName is not declared as an event, inject its declaration.
-    """
-    emitted  = set(re.findall(r"\bemit\s+(\w+)\s*\(", code))
-    declared = set(re.findall(r"\bevent\s+(\w+)\s*\(", code))
-
-    missing = emitted - declared
+def _fix_missing_custom_errors(code: str) -> str:
+    reverted = set(re.findall(r"\brevert\s+(\w+)\s*[;(]", code))
+    reverted |= {"Unauthorized", "ReentrantCall", "InvalidState", "InsufficientPayment", "DeadlinePassed", "AlreadyDisputed"}
+    declared = set(re.findall(r"\berror\s+(\w+)\s*[;(]", code))
+    missing = reverted - declared
     if not missing:
         return code
+    inject_block = "\n".join(f"    {_KNOWN_ERROR_SIGS.get(n, f'error {n}();')}" for n in sorted(missing)) + "\n"
+    m = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
+    if m:
+        code = code[:m.end()] + "\n" + inject_block + code[m.end():]
+    return code
 
-    injections: list[str] = []
-    for name in sorted(missing):
-        sig = _KNOWN_EVENT_SIGS.get(name, f"event {name}(address indexed caller, uint256 value);")
-        injections.append(f"    {sig}")
 
-    inject_block = "\n".join(injections) + "\n"
-
-    # Inject after the last existing event declaration, or after contract opening
+def _fix_missing_events(code: str) -> str:
+    _CORE_EVENTS = {"PaymentReceived", "ContractTerminated", "StateChanged"}
+    emitted = set(re.findall(r"\bemit\s+(\w+)\s*\(", code))
+    declared = set(re.findall(r"\bevent\s+(\w+)\s*\(", code))
+    needed = (emitted | _CORE_EVENTS) - declared
+    if not needed:
+        return code
+    inject_block = "\n".join(
+        f"    {_KNOWN_EVENT_SIGS.get(n, f'event {n}(address indexed caller, uint256 value);')}"
+        for n in sorted(needed)
+    ) + "\n"
     last_event = None
     for m in re.finditer(r"event\s+\w+[^;]+;\n", code):
         last_event = m
     if last_event:
-        pos = last_event.end()
-        code = code[:pos] + inject_block + code[pos:]
-    else:
-        m = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
-        if m:
-            pos = m.end()
-            code = code[:pos] + "\n" + inject_block + code[pos:]
+        return code[:last_event.end()] + inject_block + code[last_event.end():]
+    m = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
+    if m:
+        return code[:m.end()] + "\n" + inject_block + code[m.end():]
     return code
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  NEW FIX-14: Inject noReentrant modifier body if used but not declared
-# ═══════════════════════════════════════════════════════════════════════════
-
-_NOREENTRANT_BODY = """\
+_NOREENTRANT_BODY = """
     modifier noReentrant() {
         if (_locked) revert ReentrantCall();
         _locked = true;
@@ -1046,77 +841,38 @@ _NOREENTRANT_BODY = """\
 
 
 def _fix_missing_noReentrant(code: str) -> str:
-    """
-    FIX-14: Ensure the noReentrant modifier is always declared when there
-    are any payable functions (proactive injection).
-
-    Previously only injected when `noReentrant` was already referenced in a
-    function signature but the body was absent — which meant it was a no-op
-    when the LLM produced code with no reentrancy guard at all.
-
-    Now injects whenever:
-      (a) the modifier body is absent, AND
-      (b) there is at least one external/public payable function OR
-          `noReentrant` is already referenced somewhere.
-
-    Also ensures:
-    - `bool private _locked;` state variable is declared.
-    - `error ReentrantCall();` is declared (so the modifier body compiles).
-    """
-    defined = bool(re.search(r"modifier\s+noReentrant\s*\(", code))
-    if defined:
-        return code  # already present — nothing to do
-
-    # Determine whether we need the modifier:
-    # • noReentrant is referenced somewhere (old behaviour), OR
-    # • there is at least one payable function (new proactive behaviour)
-    used        = bool(re.search(r"\bnoReentrant\b", code))
-    has_payable = bool(re.search(
-        r"function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b", code, re.DOTALL
-    ))
-
+    if re.search(r"modifier\s+noReentrant\s*\(", code):
+        return code
+    used = bool(re.search(r"\bnoReentrant\b", code))
+    has_payable = bool(re.search(r"function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b", code, re.DOTALL))
     if not used and not has_payable:
-        return code  # no payable functions and not referenced — skip
-
-    # ── Ensure `bool private _locked;` is at contract scope ─────────────────
+        return code
+    # Ensure _locked is declared (deduplicate)
+    lock_matches = list(re.finditer(r"[ \t]*bool\s+private\s+_locked\s*;[^\n]*\n?", code))
+    for m in reversed(lock_matches[1:]):
+        code = code[:m.start()] + code[m.end():]
     if not re.search(r"bool\s+private\s+_locked\s*;", code):
         inject_lock = "    bool private _locked; // reentrancy guard\n"
         lines = code.splitlines(keepends=True)
         inserted = False
-        # Prefer to insert just before the constructor
         for i, line in enumerate(lines):
             if re.match(r"\s*constructor\b", line):
-                lines.insert(i, inject_lock)
-                inserted = True
-                break
+                lines.insert(i, inject_lock); inserted = True; break
         if not inserted:
-            # Fallback: insert just before the first modifier or function
             for i, line in enumerate(lines):
                 if re.match(r"\s*(modifier|function)\b", line):
-                    lines.insert(i, inject_lock)
-                    inserted = True
-                    break
+                    lines.insert(i, inject_lock); inserted = True; break
         if not inserted:
-            # Last resort: after the contract opening brace
             for i, line in enumerate(lines):
                 if re.search(r"\bcontract\s+\w+[^{]*\{", line):
-                    lines.insert(i + 1, inject_lock)
-                    break
+                    lines.insert(i + 1, inject_lock); break
         code = "".join(lines)
-
-    # ── Ensure `error ReentrantCall();` is declared ──────────────────────────
-    # The modifier body uses `revert ReentrantCall()` — it must be declared
-    # before the modifier injection so the code compiles end-to-end.
+    # Ensure ReentrantCall error is declared
     if not re.search(r"\berror\s+ReentrantCall\s*\(", code):
         m_contract = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
         if m_contract:
-            code = (
-                code[: m_contract.end()]
-                + "\n    error ReentrantCall();"
-                + code[m_contract.end():]
-            )
-
-    # ── Inject modifier before the first function definition ─────────────────
+            code = code[:m_contract.end()] + "\n    error ReentrantCall();" + code[m_contract.end():]
+    # Inject modifier before first function
     lines = code.splitlines(keepends=True)
     for i, line in enumerate(lines):
         if re.match(r"\s*function\s+\w+", line):
@@ -1125,334 +881,29 @@ def _fix_missing_noReentrant(code: str) -> str:
     return "".join(lines)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  NEW FIX-15 + FIX-16: Fix undeclared identifiers in modifier bodies
-# ═══════════════════════════════════════════════════════════════════════════
-
-# Common aliased party variable names the LLM uses instead of _partyA/_partyB
-_PARTY_ALIASES = [
-    # Generic party names
-    "parent", "acquisitionSub", "mergerSub", "buyer", "seller",
-    "employer", "employee", "licensor", "licensee", "lessor", "lessee",
-    "borrower", "lender", "owner", "developer", "client", "vendor",
-    "partyA", "partyB", "party1", "party2",
-    # M&A / corporate names the LLM uses for merger contracts
-    "company", "acquirer", "target", "subsidiary", "holdco", "newco",
-    "mergerParty", "mergee", "parentCo", "subCo",
-]
-
-
-def _get_declared_state_vars(code: str) -> set[str]:
-    """Return names of all declared state variables."""
-    names: set[str] = set()
-    for m in re.finditer(
-        r"^\s*(?:address|uint\d*|int\d*|bool|bytes\d*|string|mapping|enum\s+\w+)\s+"
-        r"(?:payable\s+)?(?:private|public|internal)?\s*(?:immutable\s+|constant\s+)?(\w+)\s*[;=]",
-        code, re.MULTILINE,
-    ):
-        names.add(m.group(1))
-    # Also catch: ContractState public contractState;
-    for m in re.finditer(
-        r"^\s*(?:ContractState|\w+State)\s+(?:public|private|internal)?\s*(\w+)\s*[;=]",
-        code, re.MULTILINE,
-    ):
-        names.add(m.group(1))
-    return names
-
-
-def _fix_broken_onlyParties(code: str) -> str:
-    """
-    FIX-16: Rewrite `modifier onlyParties()` bodies that reference undeclared
-    party variables (parent, acquisitionSub, buyer, seller …).
-
-    Strategy:
-      1. Find which party variables ARE declared (_partyA, _partyB, or
-         _arbitrator as last resort).
-      2. For each onlyParties-style modifier body that references undeclared
-         vars, replace the entire condition with a safe one.
-    """
-    declared = _get_declared_state_vars(code)
-
-    def _safe_party_condition() -> str:
-        """Build the safest possible access condition from what's declared."""
-        parties = [v for v in ("_partyA", "_partyB") if v in declared]
-        if len(parties) == 2:
-            return (
-                f"if (msg.sender != {parties[0]} && msg.sender != {parties[1]}) "
-                "revert Unauthorized();"
-            )
-        elif len(parties) == 1:
-            return f"if (msg.sender != {parties[0]}) revert Unauthorized();"
-        elif "_arbitrator" in declared:
-            return "if (msg.sender != _arbitrator) revert Unauthorized();"
-        else:
-            return "// access check skipped — no party addresses declared"
-
-    def _rewrite_modifier_body(m: re.Match) -> str:
-        mod_text = m.group(0)
-        # Extract condition part (between { and the _ ; })
-        cond_m = re.search(r"\{(.*?)_\s*;", mod_text, re.DOTALL)
-        if not cond_m:
-            return mod_text
-        old_cond = cond_m.group(1).strip()
-
-        # Check whether old condition references any undeclared variable
-        tokens = re.findall(r"\b([a-zA-Z_]\w*)\b", old_cond)
-        bad = [t for t in tokens if t in _PARTY_ALIASES and t not in declared]
-        if not bad:
-            return mod_text  # Condition is fine
-
-        safe = _safe_party_condition()
-        indent = "        "
-        new_body = f"\n{indent}{safe}\n{indent}_;"
-        rewritten = mod_text[:cond_m.start(1) - 1] + " {" + new_body + "\n    }" + mod_text[cond_m.end():]
-        return rewritten
-
-    # Match any modifier whose name contains "onlyParties" or "onlyParty"
-    # Use a depth-aware scan instead of [^}]+ to handle nested braces correctly
-    def _replace_all_onlyParties(src: str) -> str:
-        pat = re.compile(r'modifier\s+only(?:Parties|Party\w*)\s*\(\s*\)', re.DOTALL)
-        result = []
-        pos = 0
-        for mhead in pat.finditer(src):
-            result.append(src[pos:mhead.end()])
-            # Find the opening brace of this modifier
-            rest = src[mhead.end():]
-            brace_m = re.search(r'\{', rest)
-            if not brace_m:
-                pos = mhead.end()
-                continue
-            brace_start = mhead.end() + brace_m.start()
-            result.append(src[mhead.end():brace_start])  # whitespace before {
-            # Now find the matching closing brace (depth-aware)
-            depth = 0
-            j = brace_start
-            while j < len(src):
-                if src[j] == '{':
-                    depth += 1
-                elif src[j] == '}':
-                    depth -= 1
-                    if depth == 0:
-                        mod_block = src[brace_start: j + 1]
-                        # Build a fake match object for _rewrite_modifier_body
-                        fake_full = mhead.group(0) + mod_block
-                        class _FM:
-                            def group(self_, n):
-                                return fake_full
-                        rewritten = _rewrite_modifier_body(_FM())
-                        # Extract only the body part from the rewritten text
-                        rewritten_body = re.search(r'\{.*\}', rewritten, re.DOTALL)
-                        result.append(rewritten_body.group(0) if rewritten_body else mod_block)
-                        pos = j + 1
-                        break
-                j += 1
-            else:
-                pos = mhead.end()
-        result.append(src[pos:])
-        return "".join(result)
-
-    code = _replace_all_onlyParties(code)
-    return code
-
-
-def _fix_undeclared_state_var_refs(code: str) -> str:
-    """
-    FIX-15: Scan modifier and function bodies for references to common
-    party-alias names that are NOT declared state variables.
-    Replace them with the nearest declared equivalent.
-
-    This catches cases like:
-        if (msg.sender != parent || msg.sender == acquisitionSub) revert ...
-    where neither `parent` nor `acquisitionSub` is declared.
-    """
-    declared = _get_declared_state_vars(code)
-
-    # Build substitution map: alias → nearest declared equivalent
-    subst: dict[str, str] = {}
-    party_vars = [v for v in ("_partyA", "_partyB", "_arbitrator") if v in declared]
-
-    for i, alias in enumerate(_PARTY_ALIASES):
-        if alias in declared:
-            continue  # It IS declared — no substitution needed
-        if i == 0 and len(party_vars) >= 1:
-            subst[alias] = party_vars[0]
-        elif i == 1 and len(party_vars) >= 2:
-            subst[alias] = party_vars[1]
-        elif party_vars:
-            subst[alias] = party_vars[-1]
-        # else: no substitution available — leave for next pass
-
-    if not subst:
+def _fix_payable_noReentrant(code: str) -> str:
+    if not re.search(r"modifier\s+noReentrant\s*\(", code):
         return code
+    pat = re.compile(r'(function\s+(\w+)\s*\([^)]*\)[^{]*\bpayable\b[^{]*)\{', re.DOTALL)
+    def _add(m: re.Match) -> str:
+        sig = m.group(1)
+        if "noReentrant" in sig:
+            return m.group(0)
+        return f"{sig.rstrip()} noReentrant {{"
+    return pat.sub(_add, code)
 
-    # Apply substitutions only inside modifier/function bodies (after first {)
-    # Use a simple token-level replacement to avoid touching string literals
-    def _replace_token(m: re.Match) -> str:
-        token = m.group(0)
-        return subst.get(token, token)
-
-    # Only replace whole-word occurrences
-    pattern = r"\b(" + "|".join(re.escape(k) for k in subst.keys()) + r")\b"
-    code = re.sub(pattern, _replace_token, code)
-    return code
-
-
-def _fix_company_name_identifiers(code: str) -> str:
-    """
-    FIX-23: Detect ANY undeclared CamelCase/PascalCase identifier used in
-    msg.sender comparisons (e.g. LambdaResourcesUSInc, PiMergerSubLLC) and
-    replace it with the appropriate declared party variable.
-
-    The LLM frequently uses real company names from the contract text directly
-    as Solidity identifiers, causing "Error: Undeclared identifier." at compile
-    time. This fix catches what _fix_undeclared_state_var_refs misses because
-    company names are not in the static _PARTY_ALIASES list.
-
-    Strategy:
-      1. Collect all declared state variable names.
-      2. Scan every `msg.sender [!=|==] <Identifier>` expression.
-      3. If <Identifier> is not declared and looks like a company/entity name
-         (starts with uppercase, length > 4), replace with _partyA or _partyB.
-    """
-    declared = _get_declared_state_vars(code)
-    # Also add known Solidity built-ins and keywords that are always valid
-    solidity_builtins = {
-        "msg", "block", "tx", "address", "uint256", "uint", "int", "bool",
-        "bytes", "string", "true", "false", "this", "super",
-        "_partyA", "_partyB", "_arbitrator", "_locked", "_state",
-        "_amount", "_deadline", "_penaltyRate",
-    }
-    all_known = declared | solidity_builtins
-
-    party_vars = [v for v in ("_partyA", "_partyB", "_arbitrator") if v in declared]
-    if not party_vars:
-        return code  # nothing to substitute with
-
-    # Find all identifiers used in msg.sender comparisons
-    comparison_pat = re.compile(
-        r'msg\.sender\s*(?:!=|==)\s*([A-Za-z_]\w*)',
-    )
-
-    replacements: dict[str, str] = {}
-    seen_order: list[str] = []
-
-    for m in comparison_pat.finditer(code):
-        ident = m.group(1)
-        if ident in all_known:
-            continue  # properly declared — skip
-        # Looks like a company name (PascalCase, length > 3)?
-        if len(ident) > 3 and ident[0].isupper() and ident not in replacements:
-            replacements[ident] = None  # placeholder
-            seen_order.append(ident)
-
-    if not replacements:
-        return code
-
-    # Assign substitutions in order of first appearance:
-    # first unknown  → _partyA, second → _partyB, rest → last party var
-    for i, name in enumerate(seen_order):
-        if i == 0 and len(party_vars) >= 1:
-            replacements[name] = party_vars[0]
-        elif i == 1 and len(party_vars) >= 2:
-            replacements[name] = party_vars[1]
-        else:
-            replacements[name] = party_vars[-1]
-
-    def _replace(m: re.Match) -> str:
-        return replacements.get(m.group(0), m.group(0))
-
-    pattern = r"\b(" + "|".join(re.escape(k) for k in replacements) + r")\b"
-    code = re.sub(pattern, _replace, code)
-    return code
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  FIX-8 (updated): onlyX modifiers — only inject if genuinely missing
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _fix_onlyX_modifiers(code: str) -> str:
-    """Ensure at least 2 `modifier onlyX` declarations exist (SEC-005)."""
-    existing = re.findall(r"modifier\s+only\w+\s*\(", code)
-    if len(existing) >= 2:
-        return code
-
-    declared = _get_declared_state_vars(code)
-    has_partyA     = "_partyA"     in declared
-    has_partyB     = "_partyB"     in declared
-    has_arbitrator = "_arbitrator" in declared
-
-    inject_lines: list[str] = []
-
-    if len(existing) == 0:
-        if has_partyA and has_partyB:
-            inject_lines.append(
-                "    modifier onlyParties() {\n"
-                "        if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized();\n"
-                "        _;\n"
-                "    }\n"
-            )
-        elif has_arbitrator:
-            inject_lines.append(
-                "    modifier onlyOwner() {\n"
-                "        if (msg.sender != _arbitrator) revert Unauthorized();\n"
-                "        _;\n"
-                "    }\n"
-            )
-
-    if len(existing) < 2 and has_arbitrator:
-        # Don't inject duplicate onlyArbitrator
-        if not re.search(r"modifier\s+onlyArbitrator", code):
-            inject_lines.append(
-                "    modifier onlyArbitrator() {\n"
-                "        if (msg.sender != _arbitrator) revert Unauthorized();\n"
-                "        _;\n"
-                "    }\n"
-            )
-
-    if not inject_lines:
-        return code
-
-    lines = code.splitlines(keepends=True)
-    insert_idx = None
-    for i, line in enumerate(lines):
-        if re.match(r"\s*(modifier|constructor)\b", line):
-            insert_idx = i
-            break
-    if insert_idx is not None:
-        for j, block in enumerate(inject_lines):
-            lines.insert(insert_idx + j, block)
-        return "".join(lines)
-    return code
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  FIX-11 (updated): payable + receive — only inject if genuinely absent
-#  and use a self-contained body (no external modifier references)
-# ═══════════════════════════════════════════════════════════════════════════
 
 def _fix_payable_and_receive(code: str) -> str:
-    """
-    Ensure at least one external payable function and receive() exist.
-    The injected depositPayment() is intentionally self-contained:
-    it does NOT reference noReentrant (which may not exist in every contract),
-    and instead uses inline _locked checks to be safe.
-    """
     has_payable_fn = bool(
         re.search(r"function\s+\w+\s*\([^)]*\)[^{]*\bexternal\b[^{]*\bpayable\b", code) or
         re.search(r"function\s+\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\bexternal\b", code)
     )
     has_receive = bool(re.search(r"\breceive\s*\(\s*\)\s+external\s+payable", code))
-
     if has_payable_fn and has_receive:
         return code
-
-    # Determine whether noReentrant modifier is defined in this contract
     has_noReentrant = bool(re.search(r"modifier\s+noReentrant\s*\(", code))
-
     inject = ""
-
     if not has_receive:
-        # Ensure PaymentReceived event is declared
         if "PaymentReceived" not in code:
             event_line = "    event PaymentReceived(address indexed from, uint256 amount);\n"
             last_event = None
@@ -1461,42 +912,29 @@ def _fix_payable_and_receive(code: str) -> str:
             if last_event:
                 code = code[:last_event.end()] + event_line + code[last_event.end():]
             else:
-                # No existing events — insert after contract opening brace
-                m = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
-                if m:
-                    code = code[:m.end()] + "\n" + event_line + code[m.end():]
-
+                m2 = re.search(r"(\bcontract\s+\w+[^{]*\{)", code)
+                if m2:
+                    code = code[:m2.end()] + "\n" + event_line + code[m2.end():]
         inject += (
             "\n    /// @notice Accept direct ETH deposits.\n"
             "    receive() external payable {\n"
             "        emit PaymentReceived(msg.sender, msg.value);\n"
             "    }\n"
         )
-
     if not has_payable_fn:
-        # Use noReentrant modifier only if it exists; otherwise use inline guard
-        if has_noReentrant:
-            guard_open  = "noReentrant "
-            guard_inner = ""
-        else:
-            guard_open  = ""
-            guard_inner = (
-                "        if (_locked) revert ReentrantCall();\n"
-                "        _locked = true;\n"
-            )
-            guard_close = "        _locked = false;\n"
-
+        guard_open = "noReentrant " if has_noReentrant else ""
+        guard_inner = "" if has_noReentrant else (
+            "        if (_locked) revert ReentrantCall();\n        _locked = true;\n"
+        )
+        guard_close = "" if has_noReentrant else "        _locked = false;\n"
         inject += (
             "\n    /// @notice Deposit ETH payment into the contract.\n"
             f"    function depositPayment() external payable {guard_open}{{\n"
+            f"{guard_inner}"
+            "        emit PaymentReceived(msg.sender, msg.value);\n"
+            f"{guard_close}"
+            "    }\n"
         )
-        if not has_noReentrant:
-            inject += guard_inner
-        inject += "        emit PaymentReceived(msg.sender, msg.value);\n"
-        if not has_noReentrant:
-            inject += guard_close
-        inject += "    }\n"
-
     if inject:
         idx = code.rfind("}")
         if idx != -1:
@@ -1504,27 +942,193 @@ def _fix_payable_and_receive(code: str) -> str:
     return code
 
 
-def _add_receive_if_missing(code: str) -> str:
-    """Legacy safety net: add bare receive() if payable but no receive."""
-    has_payable = "payable" in code
-    has_receive = "receive()" in code
-    if has_payable and not has_receive:
-        idx = code.rfind("}")
-        if idx != -1:
-            inject = (
-                "\n    /// @notice Accept ETH deposits.\n"
-                "    receive() external payable {}\n"
-            )
-            code = code[:idx] + inject + code[idx:]
+def _fix_expiry_deadline(code: str) -> str:
+    if re.search(r'\b_deadline\b|\bdeadlineAt\b', code) or re.search(r'block\.timestamp\s*\+', code):
+        return code
+    decl = "    uint256 private _deadline; // contract expiry (unix timestamp)\n"
+    last_var = None
+    for m in re.finditer(
+        r'^    (?:address|uint\d*|bool|bytes\d*|string)\s+'
+        r'(?:payable\s+)?(?:private|public|internal)\s+'
+        r'(?:immutable\s+|constant\s+)?\w+\s*[=;][^\n]*\n',
+        code, re.MULTILINE,
+    ):
+        last_var = m
+    if last_var:
+        code = code[:last_var.end()] + decl + code[last_var.end():]
+    else:
+        m2 = re.search(r'(\bcontract\s+\w+[^{]*\{[^\n]*\n)', code)
+        if m2:
+            code = code[:m2.end()] + decl + code[m2.end():]
+    set_fn = (
+        "\n    /// @notice Set the contract expiry deadline (seconds from now).\n"
+        "    function setDeadline(uint256 durationSeconds) external onlyArbitrator {\n"
+        "        _deadline = block.timestamp + durationSeconds;\n"
+        "    }\n"
+    )
+    idx = code.rfind("}")
+    if idx != -1:
+        code = code[:idx] + set_fn + code[idx:]
     return code
 
 
+def _fix_msg_value_validation(code: str) -> str:
+    def _add_check(m: re.Match) -> str:
+        fn_head = m.group(0)
+        fn_name_m = re.search(r'function\s+(\w+)', fn_head)
+        body_start = m.end()
+        depth, j, src = 1, body_start, m.string
+        while j < len(src) and depth:
+            if src[j] == '{': depth += 1
+            elif src[j] == '}': depth -= 1
+            j += 1
+        body = src[body_start:j - 1]
+        if re.search(r'msg\.value\s*[=!<>]', body):
+            return fn_head
+        if re.search(r'\berror\s+InsufficientPayment\s*\(\s*uint256', code):
+            err_call = "revert InsufficientPayment(msg.value, 0);"
+        else:
+            err_call = "revert InsufficientPayment();"
+        return fn_head + f"\n        if (msg.value == 0) {err_call}"
+    return re.sub(
+        r'function\s+(?!receive\b)(?!fallback\b)\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\{',
+        _add_check, code,
+    )
+
+
+def _fix_msg_value_in_nonpayable(code: str) -> str:
+    fn_sig_pat = re.compile(r'(function\s+\w+\s*\([^)]*\)(?:[^{]*?))\{', re.DOTALL)
+    def _make_payable(m: re.Match) -> str:
+        sig = m.group(1)
+        if re.search(r'\bpayable\b', sig):
+            return m.group(0)
+        fn_start = m.end()
+        src = m.string
+        depth, j = 1, fn_start
+        while j < len(src) and depth:
+            if src[j] == '{': depth += 1
+            elif src[j] == '}': depth -= 1
+            j += 1
+        if 'msg.value' not in src[fn_start:j - 1]:
+            return m.group(0)
+        sig = re.sub(r'\b(view|pure)\b\s*', '', sig)
+        if re.search(r'\bexternal\b', sig):
+            sig = re.sub(r'\bexternal\b', 'external payable', sig, count=1)
+        elif re.search(r'\bpublic\b', sig):
+            sig = re.sub(r'\bpublic\b', 'public payable', sig, count=1)
+        else:
+            sig = sig.rstrip() + ' payable '
+        return sig + '{'
+    for _ in range(3):
+        new_code = fn_sig_pat.sub(_make_payable, code)
+        if new_code == code:
+            break
+        code = new_code
+    return code
+
+
+def _fix_address_payable_cast(code: str) -> str:
+    payable_vars = set(re.findall(r'address\s+payable\s+(?:private|public|internal\s+)?(\w+)', code))
+    if not payable_vars:
+        return code
+    def _wrap(m: re.Match) -> str:
+        lhs, rhs = m.group(1), m.group(2).strip()
+        if rhs.startswith("payable("):
+            return m.group(0)
+        return f"{lhs} = payable({rhs})"
+    names_re = "|".join(re.escape(v) for v in sorted(payable_vars))
+    return re.compile(rf'\b({names_re})\s*=\s*([^;{{]+)').sub(_wrap, code)
+
+
+def _fix_natspec_comments(code: str) -> str:
+    MIN_NOTICE = 8
+    if len(re.findall(r'///\s*@notice', code)) >= MIN_NOTICE:
+        return code
+    lines, out, added = code.splitlines(keepends=True), [], len(re.findall(r'///\s*@notice', code))
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        fn_start = re.match(r'(\s*)function\s+(\w+)\s*\(', line)
+        if fn_start and added < MIN_NOTICE:
+            look = "".join(lines[i:i + 8])
+            if (re.search(r'\b(public|external)\b', look) and "{" in look
+                    and "@notice" not in (out[-1].rstrip() if out else "")):
+                out.append(f"{fn_start.group(1)}/// @notice Execute {fn_start.group(2)} operation.\n")
+                added += 1
+        rcv = re.match(r'(\s*)(receive|fallback)\s*\(\s*\)\s+external', line)
+        if rcv and added < MIN_NOTICE and "@notice" not in (out[-1].rstrip() if out else ""):
+            out.append(f"{rcv.group(1)}/// @notice {rcv.group(2).capitalize()} ETH deposits.\n")
+            added += 1
+        out.append(line)
+        i += 1
+    return "".join(out)
+
+
+def _rewrite_negated_compound(inner: str) -> str | None:
+    s = inner.strip()
+    parts: list[str] = []
+    operator: str | None = None
+    depth, current, i = 0, [], 0
+    while i < len(s):
+        ch = s[i]
+        if ch == '(':
+            depth += 1; current.append(ch)
+        elif ch == ')':
+            depth -= 1; current.append(ch)
+        elif depth == 0 and s[i:i+2] in ('||', '&&'):
+            op = s[i:i+2]
+            if operator is None:
+                operator = op
+            elif operator != op:
+                return None
+            parts.append(''.join(current).strip())
+            current = []; i += 2; continue
+        else:
+            current.append(ch)
+        i += 1
+    parts.append(''.join(current).strip())
+    if len(parts) < 2 or operator is None:
+        return None
+    new_op = '&&' if operator == '||' else '||'
+    negated = [f'!({p})' if not p.startswith('!') else p[1:].strip('()') for p in parts]
+    return f' {new_op} '.join(negated)
+
+
+def _fix_injector_safe_conditions(code: str) -> str:
+    result, i, n = [], 0, len(code)
+    kw_pat = re.compile(r'\b(if|require|while)\s*\(')
+    while i < n:
+        m = kw_pat.search(code, i)
+        if not m:
+            result.append(code[i:])
+            break
+        result.append(code[i:m.start()])
+        kw = m.group(1)
+        outer_open = m.end() - 1
+        orig_gap = code[m.start() + len(kw):outer_open]
+        outer_block = _extract_balanced(code, outer_open)
+        outer_end = outer_open + len(outer_block)
+        inner = outer_block[1:-1]
+        stripped = inner.strip()
+        if stripped.startswith('!(') and stripped.endswith(')'):
+            excl_paren_start = stripped.index('(')
+            nested = _extract_balanced(stripped, excl_paren_start)
+            if nested == stripped[excl_paren_start:]:
+                expr = nested[1:-1]
+                demorgan = _rewrite_negated_compound(expr)
+                new_inner = f'({demorgan})' if demorgan is not None else f'({_negate_condition(expr)})'
+                result.append(f'{kw}{orig_gap}{new_inner}')
+                i = outer_end
+                continue
+        result.append(f'{kw}{orig_gap}{outer_block}')
+        i = outer_end
+    return ''.join(result)
+
+
 def _add_version_comment(code: str, doc: ContractDocument) -> str:
-    """Insert the generated-by banner AFTER the pragma line."""
     clean_title = doc.title.lstrip("\ufeff").strip()
     banner = (
-        "\n"
-        "// =================================================================\n"
+        "\n// =================================================================\n"
         f"// Contract : {clean_title}\n"
         f"// Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n"
         "// Tool     : eContract -> Smart Contract Converter v2.0\n"
@@ -1541,83 +1145,46 @@ def _add_version_comment(code: str, doc: ContractDocument) -> str:
     return banner + code
 
 
-def _strip_existing_banner(code: str) -> str:
-    lines = code.splitlines(keepends=True)
-    spdx_idx = next((i for i, l in enumerate(lines) if "SPDX-License-Identifier" in l), None)
-    if spdx_idx is None or spdx_idx == 0:
-        return code
-    pre = lines[:spdx_idx]
-    if all(l.strip() == "" or l.strip().startswith("//") for l in pre):
-        return "".join(lines[spdx_idx:])
-    return code
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Master pipeline
-# ═══════════════════════════════════════════════════════════════════════════
-
 def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     """Apply all deterministic post-processing fixes in order."""
     code = raw_code
-    # ── Phase 1: structural cleanup ──────────────────────────────────────
-    code = _strip_existing_banner(code)
-    code = _fix_duplicate_banner(code)            # FIX-29: remove duplicate ====banners
-    code = _fix_spdx(code)
-    code = _fix_pragma(code)
-    code = _fix_assert_calls(code)                # FIX-24: assert() → if(!..) revert
-    code = _fix_msg_value_lte_zero(code)          # FIX-28: msg.value<=0 → msg.value==0
-    code = _fix_safemath(code)
-    code = _fix_openzeppelin_imports(code)
-    code = _fix_selfdestruct(code)
-    code = _fix_tx_origin(code)
-    code = _fix_noReentrant_modifier(code)
-    code = _fix_mapping_return(code)
-    code = _fix_calculatePenalty_view(code)
-
-    # ── Phase 2: resolve type / naming errors ────────────────────────────
-    code = _fix_bare_locked(code)                # NEW: bare `locked` → `_locked`
-    code = _fix_contractstate_type(code)         # NEW: uint256 contractState → ContractState
-
-    # ── Phase 3: resolve "Identifier not found" errors ───────────────────
-    code = _fix_party_var_naming(code)            # FIX-21: partyA → _partyA everywhere
-    code = _fix_undeclared_state_var_refs(code)  # FIX-15: replace bad party aliases
-    code = _fix_company_name_identifiers(code)   # FIX-23: replace undeclared CamelCase company names
-    code = _fix_broken_onlyParties(code)         # FIX-16: rewrite broken modifier bodies
-    code = _fix_modifier_ordering(code)          # FIX-22: hoist modifiers before functions
-    code = _fix_receive_body(code)               # FIX-19: fix receive() calling internal fns
-    code = _fix_return_in_non_returning_fn(code) # FIX-20: drop return stmts in void fns
-    code = _fix_missing_noReentrant(code)        # FIX-14: inject missing noReentrant body
-    code = _fix_payable_noReentrant(code)        # FIX-18: apply noReentrant to payable fns
-    code = _fix_missing_custom_errors(code)      # FIX-12: declare all revert targets
-    code = _fix_missing_events(code)             # FIX-13: declare all emit targets
-
-    # ── Phase 4: inject missing required constructs ──────────────────────
-    code = _fix_party_declarations(code)          # FIX-25: inject _partyA/_partyB if missing
-    code = _fix_state_var_declaration(code)       # FIX-26: inject ContractState _state if missing
-    code = _fix_onlyPartyA_modifier(code)         # FIX-27: inject onlyPartyA if used but missing
-    code = _fix_locked_declaration(code)
-    code = _fix_onlyX_modifiers(code)
+    # Phase 1: structural cleanup
+    for fn in (_strip_existing_banner, _fix_duplicate_banner, _fix_spdx, _fix_pragma,
+               _fix_injector_safe_conditions, _fix_assert_calls, _fix_msg_value_lte_zero,
+               _fix_safemath, _fix_openzeppelin_imports, _fix_selfdestruct, _fix_tx_origin,
+               _fix_noReentrant_modifier, _fix_mapping_return, _fix_calculatePenalty_view,
+               # Phase 2: type / naming
+               _fix_bare_locked, _fix_contractstate_type,
+               # Phase 3: identifier resolution
+               _fix_party_var_naming, _fix_undeclared_state_var_refs,
+               _fix_company_name_identifiers, _fix_undeclared_identifiers_in_modifiers,
+               _fix_undeclared_param_refs, _fix_broken_onlyParties, _fix_modifier_ordering,
+               _fix_receive_body, _fix_return_in_non_returning_fn,
+               _fix_missing_noReentrant, _fix_payable_noReentrant,
+               _fix_missing_custom_errors, _fix_missing_events,
+               # Phase 4: inject missing constructs
+               _fix_party_declarations, _fix_state_var_declaration,
+               _fix_onlyPartyA_modifier, _fix_locked_declaration, _fix_duplicate_state_vars,
+               _fix_onlyX_modifiers):
+        code = fn(code)
     code = _fix_governing_law_constant(code, doc)
     code = _fix_start_date(code)
-    code = _fix_require_to_custom_errors(code)   # paren-balanced parser (fixed)
-    code = _fix_msg_value_validation(code)       # NEW: SEC-004 msg.value guard
-    code = _fix_expiry_deadline(code)            # NEW: COV-020 _deadline injection
-    code = _fix_payable_and_receive(code)        # FIX-11 (updated)
-    code = _fix_missing_noReentrant(code)        # Re-run: cover payable fns injected above
-    code = _fix_payable_noReentrant(code)        # Re-run: cover any newly injected payable fns
-    code = _add_receive_if_missing(code)
-
-    # ── Phase 5: documentation + formatting ──────────────────────────────
-    code = _fix_natspec_comments(code)           # NEW: SOL-013 ≥8 @notice
-    code = _fix_trailing_whitespace(code)
+    code = _fix_confidentiality_acknowledgement(code, doc)
+    for fn in (_fix_undeclared_identifiers_in_modifiers,  
+               _fix_require_to_custom_errors,
+               _fix_malformed_if_revert, _fix_malformed_if_revert, 
+               _fix_address_payable_cast, _fix_msg_value_in_nonpayable,
+               _fix_msg_value_validation, _fix_expiry_deadline, _fix_payable_and_receive,
+               _fix_msg_value_in_nonpayable,   
+               _fix_missing_noReentrant,      
+               _fix_payable_noReentrant,       
+               _fix_natspec_comments,
+               _fix_injector_safe_conditions, _fix_trailing_whitespace):
+        code = fn(code)
     code = _add_version_comment(code, doc)
-    code = _fix_duplicate_banner(code)            # Re-run: catch banner added by _add_version_comment
+    code = _fix_duplicate_banner(code)
     return code
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Output file writers (unchanged)
-# ═══════════════════════════════════════════════════════════════════════════
 
 def _slugify(text: str) -> str:
     text = text.lstrip("\ufeff").strip()
@@ -1627,25 +1194,17 @@ def _slugify(text: str) -> str:
 
 
 def save_solidity(
-    code: str,
-    doc: ContractDocument,
-    output_dir: Path,
-    filename: Optional[str] = None,
+    code: str, doc: ContractDocument, output_dir: Path, filename: Optional[str] = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    name = filename or _slugify(doc.title)
-    path = output_dir / f"{name}.sol"
+    path = output_dir / f"{filename or _slugify(doc.title)}.sol"
     path.write_text(code, encoding="utf-8")
     return path
 
 
 def save_report(
-    doc: ContractDocument,
-    sol_path: Path,
-    issues: list[str],
-    output_dir: Path,
-    elapsed: float,
-    validation_report=None,
+    doc: ContractDocument, sol_path: Path, issues: list[str],
+    output_dir: Path, elapsed: float, validation_report=None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     report: dict = {
@@ -1654,10 +1213,7 @@ def save_report(
         "source_file":          doc.metadata.get("source_file", "unknown"),
         "output_file":          str(sol_path),
         "contract_title":       doc.title.lstrip("\ufeff").strip(),
-        "parties": [
-            {"role": p.role, "name": p.name, "wallet": p.wallet_hint}
-            for p in doc.parties
-        ],
+        "parties":              [{"role": p.role, "name": p.name, "wallet": p.wallet_hint} for p in doc.parties],
         "clauses_extracted":    doc.metadata.get("clause_count", 0),
         "effective_date":       doc.effective_date,
         "expiry_date":          doc.expiry_date,
@@ -1668,49 +1224,34 @@ def save_report(
     }
     if validation_report is not None:
         vr = validation_report
-        report["validation_passed"] = (
-            len(issues) == 0 and vr.critical_failures == 0 and vr.accuracy_overall >= 50.0
-        )
+        report["validation_passed"] = (len(issues) == 0 and vr.critical_failures == 0 and vr.accuracy_overall >= 50.0)
         report["accuracy"] = {
-            "overall":  round(vr.accuracy_overall,  1),
+            "overall":  round(vr.accuracy_overall, 1),
             "solidity": round(vr.accuracy_solidity, 1),
             "security": round(vr.accuracy_security, 1),
-            "legal":    round(vr.accuracy_legal,    1),
+            "legal":    round(vr.accuracy_legal, 1),
             "coverage": round(vr.accuracy_coverage, 1),
         }
         report["test_suite"] = {
-            "total_tests":       vr.total_tests,
-            "passed":            vr.passed,
-            "failed":            vr.failed,
-            "critical_failures": vr.critical_failures,
+            "total_tests": vr.total_tests, "passed": vr.passed,
+            "failed": vr.failed, "critical_failures": vr.critical_failures,
             "results": [
-                {
-                    "test_id":     r.test_id,
-                    "category":    r.category,
-                    "description": r.description,
-                    "passed":      r.passed,
-                    "severity":    r.severity,
-                    "detail":      r.detail,
-                }
+                {"test_id": r.test_id, "category": r.category, "description": r.description,
+                 "passed": r.passed, "severity": r.severity, "detail": r.detail}
                 for r in vr.results
             ],
         }
         report["test_summary"] = vr.summary
     else:
-        report["accuracy"] = {
-            "overall": None, "solidity": None,
-            "security": None, "legal": None, "coverage": None,
-        }
-        report["test_suite"]   = None
+        report["accuracy"] = {"overall": None, "solidity": None, "security": None, "legal": None, "coverage": None}
+        report["test_suite"] = None
         report["test_summary"] = "Validator not run."
-
     path = output_dir / "results.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return path
 
 
 def run_contract_validation(code: str, doc: "ContractDocument"):
-    """Run the full test suite. Returns a ValidationReport or None."""
     try:
         import sys, pathlib
         sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -1720,84 +1261,25 @@ def run_contract_validation(code: str, doc: "ContractDocument"):
         return None
 
 
-def save_human_readable_summary(
-    doc: ContractDocument,
-    sol_path: Path,
-    output_dir: Path,
-    validation_report=None,
-) -> Optional[Path]:
-    """No-op — results folder contains only .sol + results.json."""
-    return None
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Feedback-aware generation pipeline
-# ═══════════════════════════════════════════════════════════════════════════
-
 def generate_contract_with_feedback(
-    llm_client,
-    doc: "ContractDocument",
-    system_prompt: str,
-    user_prompt: str,
-    output_dir: "Path",
-    max_iterations: int = 3,
-    accuracy_target: float = 100.0,
+    llm_client, doc: "ContractDocument", system_prompt: str, user_prompt: str,
+    output_dir: "Path", max_iterations: int = 3, accuracy_target: float = 100.0,
     filename: Optional[str] = None,
 ) -> tuple["Path", "Path", object]:
-    """
-    Full pipeline: LLM generation → postprocessor fixes → validation →
-    feedback loop (if accuracy < target or contract has errors) →
-    save outputs.
-
-    Parameters
-    ----------
-    llm_client      : An initialised LLMClient instance.
-    doc             : Parsed ContractDocument.
-    system_prompt   : System prompt string (from prompt_builder.get_system_prompt()).
-    user_prompt     : User prompt string (from prompt_builder.build_user_prompt()).
-    output_dir      : Directory for .sol and results.json files.
-    max_iterations  : Max feedback iterations (default 3).
-    accuracy_target : Stop early when accuracy reaches this % (default 100.0).
-    filename        : Optional stem for output files.
-
-    Returns
-    -------
-    (sol_path, report_path, validation_report)
-    """
-    import time
+    """Full pipeline: LLM generation → postprocessor fixes → validation → feedback loop → save."""
     import logging
     logger = logging.getLogger("econtract.pipeline")
-
     start = time.time()
+    logger.info(f"Starting generation pipeline for '{doc.title}' (max_iterations={max_iterations}, accuracy_target={accuracy_target}%)")
 
-    logger.info(
-        f"Starting generation pipeline for '{doc.title}' "
-        f"(max_iterations={max_iterations}, accuracy_target={accuracy_target}%)"
-    )
-
-    # ── Run generation + feedback loop ───────────────────────────────────────
     best_code, struct_issues, validation_report = llm_client.generate_with_feedback(
-        system         = system_prompt,
-        user           = user_prompt,
-        doc            = doc,
-        max_iterations = max_iterations,
-        accuracy_target= accuracy_target,
+        system=system_prompt, user=user_prompt, doc=doc,
+        max_iterations=max_iterations, accuracy_target=accuracy_target,
     )
-
     elapsed = time.time() - start
-
-    # ── Final postprocessor pass on the best code ────────────────────────────
     final_code = apply_all_fixes(best_code, doc)
-
-    # ── Save artefacts ───────────────────────────────────────────────────────
-    sol_path    = save_solidity(final_code, doc, Path(output_dir), filename)
-    report_path = save_report(
-        doc,
-        sol_path,
-        struct_issues,
-        Path(output_dir),
-        elapsed,
-        validation_report,
-    )
+    sol_path = save_solidity(final_code, doc, Path(output_dir), filename)
+    report_path = save_report(doc, sol_path, struct_issues, Path(output_dir), elapsed, validation_report)
 
     if validation_report is not None:
         logger.info(
@@ -1807,5 +1289,4 @@ def generate_contract_with_feedback(
         )
     else:
         logger.info(f"Pipeline complete in {elapsed:.1f}s")
-
     return sol_path, report_path, validation_report

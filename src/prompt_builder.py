@@ -189,6 +189,17 @@ MANDATORY SOLIDITY 0.8.16 RULES — follow EVERY rule, no exceptions:
         RIGHT: uint256 public immutable startDate;
                // then inside constructor:
                startDate = EFFECTIVE_DATE;
+
+31. CONFIDENTIALITY CLAUSE — if the eContract has a confidentiality/NDA clause:
+    The word "nonDisclos" or "confidential" MUST appear in the Solidity code.
+    Use EXACTLY this pattern:
+        bool private _confidentialityAcknowledged;
+        event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);
+        function acknowledgeNonDisclosure() external onlyParties {
+            _confidentialityAcknowledged = true;
+            emit NonDisclosureAcknowledged(msg.sender, block.timestamp);
+        }
+    The validator (COV-050) checks for these keywords — missing them = test failure.
 """
 
 SOLIDITY_TEMPLATE_HINTS = """
@@ -558,7 +569,14 @@ def build_user_prompt(doc: ContractDocument) -> str:
         "5.  Expiry/term clauses → _deadline = block.timestamp + N days in constructor.",
         "6.  Obligation clauses → acknowledgeDelivery() or confirmMilestone().",
         "7.  Dispute clauses    → dispute() + _arbitrator + DisputeRaised event.",
-        "8.  Confidentiality/IP → acknowledgement events + bool flags.",
+        "8.  Confidentiality/IP → MUST use word 'nonDisclos' or 'confidential' in code.",
+        "    Required pattern (COV-050 validator checks these exact keywords):",
+        "      bool private _confidentialityAcknowledged;",
+        "      event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);",
+        "      function acknowledgeNonDisclosure() external onlyParties {",
+        "          _confidentialityAcknowledged = true;",
+        "          emit NonDisclosureAcknowledged(msg.sender, block.timestamp);",
+        "      }",
         "",
         "MANDATORY FUNCTIONS:",
         "9.  dispute()                                     — sets Disputed state, emits event.",
@@ -612,6 +630,8 @@ def build_user_prompt(doc: ContractDocument) -> str:
         "  □ Zero require(condition, \"string\") calls?",
         "  □ ≥8 /// @notice comments?",
         "  □ Balanced braces?",
+        "  □ If confidentiality clause: 'nonDisclos' or 'confidential' keyword in code?",
+        "    (bool _confidentialityAcknowledged + event NonDisclosureAcknowledged + fn acknowledgeNonDisclosure)",
         "",
         "Now output ONLY the complete Solidity source code:",
         sep,
