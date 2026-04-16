@@ -1,5 +1,0 @@
-Properties inserted : 16
-Properties violation detected (dynamic) : 0
-Properties violation detected (unique) : 0
-Total atomic condition : 8
-Condition Coverage % : 0%
