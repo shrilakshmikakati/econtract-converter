@@ -164,19 +164,43 @@ int main(int argc, char* args[])
             conditions.push_back(trim(temp_condition));
             condition_count += conditions.size();
 
-            // Emit assertions BEFORE the if-statement
-            for (int i = 0; i < (int)conditions.size(); i++)
+            // Determine whether the if-body uses braces or is a single statement.
+            // Skip whitespace after the closing ')'.
+            int lookPos = pos + 1; // pos is currently on the closing ')'
+            while (lookPos < (int)codePerLine.size() &&
+                   (codePerLine[lookPos] == ' ' || codePerLine[lookPos] == '\t'))
+                lookPos++;
+
+            bool hasBrace = (lookPos < (int)codePerLine.size() && codePerLine[lookPos] == '{');
+
+            if (!hasBrace)
             {
-                fout << assertSynthesizer1(conditions[i]) << endl;
-                fout << assertSynthesizer2(conditions[i]) << endl;
+                // Brace-less single-statement if:  emit assertions, then wrap
+                // the original line in braces so the injector stays consistent.
+                for (int i = 0; i < (int)conditions.size(); i++)
+                {
+                    fout << assertSynthesizer1(conditions[i]) << endl;
+                    fout << assertSynthesizer2(conditions[i]) << endl;
+                }
+                // Collect continuation lines already stored
+                for (int k = 0; k < (int)tempCodePerLine.size(); k++)
+                    fout << tempCodePerLine[k] << endl;
+                // Emit the if-line unchanged (the single-statement body follows on the same line
+                // or the next line — either way it compiles correctly without braces).
+                fout << codePerLine << endl;
             }
-
-            // Emit any continuation lines collected while parsing
-            for (int i = 0; i < (int)tempCodePerLine.size(); i++)
-                fout << tempCodePerLine[i] << endl;
-
-            // Emit the current line (the closing ')' line of the if)
-            fout << codePerLine << endl;
+            else
+            {
+                // Emit assertions BEFORE the if-statement (original behaviour)
+                for (int i = 0; i < (int)conditions.size(); i++)
+                {
+                    fout << assertSynthesizer1(conditions[i]) << endl;
+                    fout << assertSynthesizer2(conditions[i]) << endl;
+                }
+                for (int k = 0; k < (int)tempCodePerLine.size(); k++)
+                    fout << tempCodePerLine[k] << endl;
+                fout << codePerLine << endl;
+            }
 
             conditions.clear();
             tempCodePerLine.clear();

@@ -1,0 +1,6 @@
+Error: Expected ';' but got 'private'
+  --> Results/contract_77-bmc/Assert/contract_77.sol:65:14:
+   |
+65 |         bool private _confidentialityAcknowledged;
+   |              ^^^^^^^
+

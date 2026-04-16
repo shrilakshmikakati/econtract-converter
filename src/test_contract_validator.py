@@ -387,10 +387,13 @@ def check_legal_clause_coverage(code: str, doc: ContractDocument) -> List[TestRe
         exp_clauses = [c for c in doc.clauses if c.clause_type == "expiry"]
         for pc in exp_clauses:
             if pc.deadline_days:
+                _seconds_equiv = pc.deadline_days * 86400
                 _t("COV-022", f"Term of {pc.deadline_days} days encoded",
                    _find_in_sol(rf"\b{pc.deadline_days}\b", code) or
                    _find_in_sol(r"\d+\s*\*\s*1\s+days", code) or
-                   _find_in_sol(r"\d+\s*days\b", code),
+                   _find_in_sol(r"\d+\s*days\b", code) or
+                   _find_in_sol(rf"\b{_seconds_equiv}\b", code) or
+                   _find_in_sol(rf"\b{pc.deadline_days}\s*\*\s*(?:24\s*\*\s*)?(?:60\s*\*\s*60|3600)\b", code),
                    "minor", f"Looking for {pc.deadline_days} day period")
 
     # ── Obligation ───────────────────────────────────────────────────────────

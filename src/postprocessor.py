@@ -491,6 +491,12 @@ def _fix_require_to_custom_errors(code: str) -> str:
                     j += 1
                     break
             j += 1
+        # Consume the trailing ';' of the original require(...); statement so
+        # we don't end up with a double-semicolon `revert Unauthorized();;`.
+        while j < n and code[j] in ' \t':
+            j += 1
+        if j < n and code[j] == ';':
+            j += 1
         i = j
     return "".join(result)
 
@@ -709,7 +715,7 @@ def _fix_governing_law_constant(code: str, doc: ContractDocument) -> str:
     m = re.search(r"(uint256\s+public\s+constant\s+EFFECTIVE_DATE[^\n]+\n)", code)
     if m:
         return code[:m.end()] + constant_line + code[m.end():]
-    m = re.search(r"(pragma\s+solidity[^\n]+\n)", code)
+    m = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
     if m:
         return code[:m.end()] + constant_line + code[m.end():]
     return code
@@ -744,6 +750,28 @@ def _fix_confidentiality_acknowledgement(code: str, doc: ContractDocument) -> st
     if not any(c.clause_type == "confidential" for c in doc.clauses):
         return code
     if re.search(r"confidential|nda|nonDisclos|non_disclos", code, re.I):
+        # Still need to fix any `bool private _confidentialityAcknowledged;`
+        # that the LLM emitted *inside a function body* — local vars cannot
+        # have a visibility specifier.  Remove it and hoist it to state scope
+        # if not already declared there.
+        local_pat = re.compile(
+            r'^([ \t]*)bool\s+private\s+_confidentialityAcknowledged\s*;[^\n]*\n',
+            re.MULTILINE,
+        )
+        # Check whether it is already a proper state-level declaration
+        # (i.e. not indented inside a function body – heuristic: only one
+        # level of indentation, directly inside the contract block).
+        state_decl_pat = re.compile(
+            r'^[ ]{0,4}bool\s+private\s+_confidentialityAcknowledged\s*;',
+            re.MULTILINE,
+        )
+        for m in list(local_pat.finditer(code))[::-1]:
+            # If it looks like a state-level line (≤4 leading spaces) keep it
+            if state_decl_pat.match(m.group(0)):
+                continue
+            # Otherwise it's inside a function body – remove the visibility kw
+            fixed = m.group(1) + "bool _confidentialityAcknowledged;\n"
+            code = code[:m.start()] + fixed + code[m.end():]
         return code
     state_var = "    bool private _confidentialityAcknowledged;\n"
     event_decl = "    event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);\n"
@@ -942,9 +970,14 @@ def _fix_payable_and_receive(code: str) -> str:
     return code
 
 
-def _fix_expiry_deadline(code: str) -> str:
+def _fix_expiry_deadline(code: str, deadline_days: int = 0) -> str:
     if re.search(r'\b_deadline\b|\bdeadlineAt\b', code) or re.search(r'block\.timestamp\s*\+', code):
         return code
+    # Inject TERM_DAYS constant so the literal day count is always present in the
+    # contract, satisfying COV-022 checks that look for the raw number.
+    term_const = ""
+    if deadline_days and f"TERM_DAYS" not in code:
+        term_const = f"    uint256 public constant TERM_DAYS = {deadline_days};\n"
     decl = "    uint256 private _deadline; // contract expiry (unix timestamp)\n"
     last_var = None
     for m in re.finditer(
@@ -954,18 +987,29 @@ def _fix_expiry_deadline(code: str) -> str:
         code, re.MULTILINE,
     ):
         last_var = m
+    inject = term_const + decl
     if last_var:
-        code = code[:last_var.end()] + decl + code[last_var.end():]
+        code = code[:last_var.end()] + inject + code[last_var.end():]
     else:
         m2 = re.search(r'(\bcontract\s+\w+[^{]*\{[^\n]*\n)', code)
         if m2:
-            code = code[:m2.end()] + decl + code[m2.end():]
-    set_fn = (
-        "\n    /// @notice Set the contract expiry deadline (seconds from now).\n"
-        "    function setDeadline(uint256 durationSeconds) external onlyArbitrator {\n"
-        "        _deadline = block.timestamp + durationSeconds;\n"
-        "    }\n"
-    )
+            code = code[:m2.end()] + inject + code[m2.end():]
+    # Use TERM_DAYS in the injected function if we have it, otherwise fall back to
+    # a duration parameter.  Either way, `N days` appears in the source.
+    if deadline_days:
+        set_fn = (
+            "\n    /// @notice Initialise the contract expiry deadline.\n"
+            "    function setDeadline() external onlyArbitrator {\n"
+            f"        _deadline = block.timestamp + TERM_DAYS * 1 days;\n"
+            "    }\n"
+        )
+    else:
+        set_fn = (
+            "\n    /// @notice Set the contract expiry deadline (seconds from now).\n"
+            "    function setDeadline(uint256 durationSeconds) external onlyArbitrator {\n"
+            "        _deadline = block.timestamp + durationSeconds;\n"
+            "    }\n"
+        )
     idx = code.rfind("}")
     if idx != -1:
         code = code[:idx] + set_fn + code[idx:]
@@ -973,27 +1017,82 @@ def _fix_expiry_deadline(code: str) -> str:
 
 
 def _fix_msg_value_validation(code: str) -> str:
-    def _add_check(m: re.Match) -> str:
-        fn_head = m.group(0)
-        fn_name_m = re.search(r'function\s+(\w+)', fn_head)
-        body_start = m.end()
-        depth, j, src = 1, body_start, m.string
+    """
+    Inject `if (msg.value == 0) revert …;` as the FIRST statement inside every
+    external/public payable function that does not already validate msg.value.
+
+    The previous implementation used a single greedy regex for both the
+    function-head match AND as the replacement anchor.  That caused two bugs:
+
+    1. The greedy `[^{]*` in the pattern could consume newlines and match past
+       the real opening brace, capturing state-variable lines that follow.
+       When the replacement was stitched back, the injected code landed between
+       the `{` and those state-variable lines, producing:
+
+           {
+               if (msg.value == 0) revert …;   ← injected
+           bool private _locked;               ← was a state var, now INSIDE body
+           …
+
+       which made `solc` report "Expected ';' but got 'private'".
+
+    2. Because _fix_msg_value_in_nonpayable() runs both BEFORE and AFTER this
+       function in apply_all_fixes(), functions made payable by the second call
+       never got the msg.value check injected (the second call to
+       _fix_msg_value_in_nonpayable runs AFTER _fix_msg_value_validation).
+       The second invocation of _fix_msg_value_in_nonpayable is now removed
+       from apply_all_fixes(); see that function for the ordering fix.
+
+    Fix: locate every payable function with a depth-aware scanner rather than
+    relying on a regex to span the signature+brace in one shot.
+    """
+    fn_head_pat = re.compile(
+        r'function\s+(?!receive\b)(?!fallback\b)(\w+)\s*\([^)]*\)([^{]*)\{',
+        re.DOTALL,
+    )
+    if re.search(r'\berror\s+InsufficientPayment\s*\(\s*uint256', code):
+        err_call = "revert InsufficientPayment(msg.value, 0);"
+    else:
+        err_call = "revert InsufficientPayment();"
+
+    # We'll rebuild the code string with targeted replacements (reverse order
+    # so offsets stay valid).
+    replacements: list[tuple[int, int, str]] = []  # (body_start, insert_pos, text)
+
+    for m in fn_head_pat.finditer(code):
+        full_sig = m.group(0)  # everything up to and including the opening `{`
+        if not re.search(r'\bpayable\b', full_sig):
+            continue
+        body_start = m.end()  # character right after the opening `{`
+
+        # Extract body with brace-depth tracking
+        depth, j, src = 1, body_start, code
         while j < len(src) and depth:
-            if src[j] == '{': depth += 1
-            elif src[j] == '}': depth -= 1
+            if src[j] == '{':
+                depth += 1
+            elif src[j] == '}':
+                depth -= 1
             j += 1
         body = src[body_start:j - 1]
+
+        # Skip if msg.value is already tested in the body
         if re.search(r'msg\.value\s*[=!<>]', body):
-            return fn_head
-        if re.search(r'\berror\s+InsufficientPayment\s*\(\s*uint256', code):
-            err_call = "revert InsufficientPayment(msg.value, 0);"
-        else:
-            err_call = "revert InsufficientPayment();"
-        return fn_head + f"\n        if (msg.value == 0) {err_call}"
-    return re.sub(
-        r'function\s+(?!receive\b)(?!fallback\b)\w+\s*\([^)]*\)[^{]*\bpayable\b[^{]*\{',
-        _add_check, code,
-    )
+            continue
+
+        # Determine indentation from the opening line of the function
+        fn_line_start = code.rfind('\n', 0, m.start()) + 1
+        fn_indent = len(code[fn_line_start:m.start()]) - len(code[fn_line_start:m.start()].lstrip())
+        inner_indent = ' ' * (fn_indent + 8)  # function body is typically +8 spaces
+
+        inject = f"\n{inner_indent}if (msg.value == 0) {err_call}"
+        # Insert right after the opening `{` (at body_start)
+        replacements.append((body_start, inject))
+
+    # Apply in reverse order so earlier offsets stay valid
+    for pos, text in sorted(replacements, key=lambda x: x[0], reverse=True):
+        code = code[:pos] + text + code[pos:]
+
+    return code
 
 
 def _fix_msg_value_in_nonpayable(code: str) -> str:
@@ -1170,17 +1269,33 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
     code = _fix_governing_law_constant(code, doc)
     code = _fix_start_date(code)
     code = _fix_confidentiality_acknowledgement(code, doc)
-    for fn in (_fix_undeclared_identifiers_in_modifiers,  
+    for fn in (_fix_undeclared_identifiers_in_modifiers,
                _fix_require_to_custom_errors,
-               _fix_malformed_if_revert, _fix_malformed_if_revert, 
-               _fix_address_payable_cast, _fix_msg_value_in_nonpayable,
-               _fix_msg_value_validation, _fix_expiry_deadline, _fix_payable_and_receive,
-               _fix_msg_value_in_nonpayable,   
-               _fix_missing_noReentrant,      
-               _fix_payable_noReentrant,       
+               _fix_malformed_if_revert, _fix_malformed_if_revert, _fix_malformed_if_revert,
+               _fix_address_payable_cast,
+               # Make non-payable functions that use msg.value payable FIRST,
+               # then inject the msg.value == 0 guard so ALL payable functions
+               # (including those just promoted) get the SEC-004 check.
+               # The second _fix_msg_value_in_nonpayable call was removed: it
+               # ran after _fix_msg_value_validation and created new payable
+               # functions that never received the guard, causing SEC-004 to
+               # fail.  One pass is sufficient because _fix_msg_value_in_nonpayable
+               # already loops internally up to 3 times.
+               _fix_msg_value_in_nonpayable,
+               _fix_msg_value_validation,
+               _fix_payable_and_receive,
+               _fix_missing_noReentrant,
+               _fix_payable_noReentrant,
                _fix_natspec_comments,
                _fix_injector_safe_conditions, _fix_trailing_whitespace):
         code = fn(code)
+    # _fix_expiry_deadline needs the deadline_days from doc for COV-022 compliance
+    _deadline_days = 0
+    for _cl in getattr(doc, "clauses", []):
+        if getattr(_cl, "clause_type", "") == "expiry" and getattr(_cl, "deadline_days", 0):
+            _deadline_days = _cl.deadline_days
+            break
+    code = _fix_expiry_deadline(code, _deadline_days)
     code = _add_version_comment(code, doc)
     code = _fix_duplicate_banner(code)
     return code

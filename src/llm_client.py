@@ -214,6 +214,23 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
                 "Mark the function `payable` or remove the msg.value reference."
             )
 
+    # ── NEW: detect visibility keyword on local variables inside function bodies ──
+    # e.g. `bool private _confidentialityAcknowledged;` inside a function is a
+    # compile error ("Expected ';' but got 'private'").  State-level declarations
+    # have ≤4 spaces of indentation; anything deeper (or tab-indented) is in a block.
+    local_visibility = re.findall(
+        r'^(?:[ ]{5,}|\t+)(?:bool|uint\d*|int\d*|address|bytes\d*|string)\s+'
+        r'(?:private|public|internal|external)\s+\w+\s*;',
+        code, re.MULTILINE,
+    )
+    if local_visibility:
+        issues.append(
+            f"Local variable(s) declared with visibility keyword "
+            f"({len(local_visibility)} occurrence(s)) inside a function body — "
+            "compile error. Remove 'private'/'public'/'internal' from local "
+            "variable declarations (visibility is only valid at contract scope)."
+        )
+
     # ── FIX-7g: SEC-001 — bool private _locked at contract scope ──────────
     if not re.search(r"bool\s+private\s+_locked\s*;", code):
         issues.append(
