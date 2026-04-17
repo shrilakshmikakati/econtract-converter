@@ -176,12 +176,96 @@ def _format_structural_issues(issues: list) -> str:
     return "\n".join(f"  {i+1}. {iss}" for i, iss in enumerate(issues))
 
 
+def _detect_stuck_errors(
+    structural_issues: list[str],
+    iteration_log: list,
+) -> list[str]:
+    """
+    Return the subset of structural_issues that appeared unchanged in the
+    immediately preceding iteration.  These are errors the LLM failed to fix
+    and needs an explicit pinpointed hint for.
+    """
+    if not iteration_log:
+        return []
+    prev_issues = set(iteration_log[-1].structural_issues)
+    return [iss for iss in structural_issues if iss in prev_issues]
+
+
+def _build_stuck_hint(stuck_errors: list[str], code: str) -> str:
+    """
+    For each error that the LLM failed to fix in the previous iteration,
+    produce a concrete, line-level hint that tells the LLM exactly what to
+    change.  Falls back to a generic re-statement if no line can be found.
+    """
+    lines = code.splitlines()
+    hints: list[str] = []
+
+    for err in stuck_errors:
+        hint_lines: list[str] = []
+
+        # ── Wrong argument count ───────────────────────────────────────────
+        m_argc = re.search(
+            r'Wrong argument count.*?(\d+)\s+argument.*?expected\s+(\d+)', err, re.I
+        )
+        if m_argc:
+            given, expected = int(m_argc.group(1)), int(m_argc.group(2))
+            # Find emit lines that have more args than the event declares
+            event_arity: dict[str, int] = {}
+            for em in re.finditer(r'\bevent\s+(\w+)\s*\(([^)]*)\)', code):
+                ev_params = [p for p in em.group(2).split(',') if p.strip()]
+                event_arity[em.group(1)] = len(ev_params)
+            for lineno, line in enumerate(lines, 1):
+                m_emit = re.match(r'\s*emit\s+(\w+)\s*\(', line)
+                if m_emit:
+                    ev_name = m_emit.group(1)
+                    declared = event_arity.get(ev_name)
+                    if declared is not None:
+                        # Crude comma count — good enough for the hint
+                        approx_args = line.count(',') + 1
+                        if approx_args > declared:
+                            hint_lines.append(
+                                f"  Line {lineno}: `{line.strip()}`\n"
+                                f"  → event {ev_name} declares {declared} param(s) "
+                                f"but the emit passes ~{approx_args}. "
+                                f"Remove the extra argument(s) so the call matches "
+                                f"the declaration exactly."
+                            )
+
+        # ── Undeclared identifier ──────────────────────────────────────────
+        m_id = re.search(r'Undeclared identifier.*?["\'](\w+)["\']', err, re.I)
+        if not m_id:
+            m_id = re.search(r'["\'](\w+)["\']', err)
+        if m_id:
+            ident = m_id.group(1)
+            for lineno, line in enumerate(lines, 1):
+                if re.search(r'\b' + re.escape(ident) + r'\b', line):
+                    hint_lines.append(
+                        f"  Line {lineno}: `{line.strip()}`\n"
+                        f"  → `{ident}` is used here but never declared. "
+                        f"Either declare it as a state variable or replace it "
+                        f"with the correct identifier."
+                    )
+                    break  # one example is enough
+
+        if hint_lines:
+            hints.append(f"PERSISTENT ERROR (not fixed last iteration):\n  {err}\n" + "\n".join(hint_lines))
+        else:
+            hints.append(
+                f"PERSISTENT ERROR (not fixed last iteration):\n  {err}\n"
+                f"  → This error was present in the previous iteration and was NOT "
+                f"corrected. Fix it explicitly — do not leave it unchanged."
+            )
+
+    return hints
+
+
 def build_repair_prompt(
     code: str,
     report: ValidationReport,
     structural_issues: list,
     iteration: int,
     target_accuracy: float,
+    stuck_hints: list[str] | None = None,
 ) -> str:
     """Build a targeted LLM repair prompt from the current failures."""
 
@@ -195,11 +279,21 @@ def build_repair_prompt(
         Critical failures : {report.critical_failures}
     """).strip()
 
+    stuck_block = ""
+    if stuck_hints:
+        stuck_block = (
+            f"\n{'━'*70}\n"
+            f"⚠  ERRORS THAT WERE NOT FIXED IN THE PREVIOUS ITERATION\n"
+            f"{'━'*70}\n"
+            + "\n\n".join(stuck_hints)
+            + "\n"
+        )
+
     return f"""You are a senior Solidity 0.8.16 auditor performing ITERATION {iteration} of an
 automated feedback-fix loop. The contract below FAILED validation.
 Your ONLY task: output a COMPLETE, CORRECTED Solidity file that fixes EVERY
 item listed below without breaking anything that already passes.
-
+{stuck_block}
 {'━'*70}
 CURRENT VALIDATION SCORES
 {'━'*70}
@@ -242,6 +336,8 @@ MANDATORY SELF-CHECK BEFORE OUTPUT
 □  string public constant GOVERNING_LAW = "..." declared
 □  All revert targets declared as: error Name(...);
 □  All emit targets declared as: event Name(...);
+□  EMIT ARITY CHECK: count the parameters in every `event Name(...)` declaration.
+   Every `emit Name(...)` call MUST pass EXACTLY that many arguments — no more, no less.
 □  UNDECLARED IDENTIFIER CHECK: every identifier in every modifier body
    MUST be a declared state var (_partyA, _partyB, _arbitrator, etc.).
    NEVER use company/entity names (CamelCase) directly — use _partyA/_partyB.
@@ -451,6 +547,10 @@ def run_feedback_loop(
             structural_issues = structural_issues,
             iteration         = iteration + 1,
             target_accuracy   = target_accuracy,
+            stuck_hints       = _build_stuck_hint(
+                _detect_stuck_errors(structural_issues, iteration_log[:-1]),
+                current_code,
+            ) or None,
         )
 
         # ── 8. LLM repair call ─────────────────────────────────────────────

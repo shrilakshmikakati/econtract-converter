@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -191,7 +192,6 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
         re.DOTALL,
     )
     for _fh in _fn_head_pat.finditer(code):
-        _sig_tail = _fh.group(2)   # modifiers / visibility / returns between ) and {
         _full_sig  = _fh.group(0)
         if re.search(r'\bpayable\b', _full_sig):
             continue  # payable — msg.value is fine
@@ -218,11 +218,33 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
     # e.g. `bool private _confidentialityAcknowledged;` inside a function is a
     # compile error ("Expected ';' but got 'private'").  State-level declarations
     # have ≤4 spaces of indentation; anything deeper (or tab-indented) is in a block.
-    local_visibility = re.findall(
-        r'^(?:[ ]{5,}|\t+)(?:bool|uint\d*|int\d*|address|bytes\d*|string)\s+'
-        r'(?:private|public|internal|external)\s+\w+\s*;',
-        code, re.MULTILINE,
+    # We use both the indentation heuristic AND a brace-depth scan for accuracy.
+    local_visibility: list[str] = []
+    # Collect all function/modifier/constructor body ranges first
+    _head_pat = re.compile(
+        r'\b(?:function\s+\w+|modifier\s+\w+|constructor)\s*\([^)]*\)[^{]*\{',
+        re.DOTALL,
     )
+    _body_ranges: list[tuple[int, int]] = []
+    for _hm in _head_pat.finditer(code):
+        _bs = _hm.end()
+        _d, _j = 1, _bs
+        while _j < len(code) and _d:
+            if code[_j] == '{': _d += 1
+            elif code[_j] == '}': _d -= 1
+            _j += 1
+        _body_ranges.append((_bs, _j - 1))
+
+    _vis_decl_pat = re.compile(
+        r'^([ \t]+)(?:bool|uint\d*|int\d*|address(?:\s+payable)?|bytes\d*|string)\s+'
+        r'(?:private|public|internal|external)\s+\w+\s*;',
+        re.MULTILINE,
+    )
+    for _vm in _vis_decl_pat.finditer(code):
+        for _bs, _be in _body_ranges:
+            if _bs <= _vm.start() < _be:
+                local_visibility.append(_vm.group(0).strip())
+                break
     if local_visibility:
         issues.append(
             f"Local variable(s) declared with visibility keyword "
@@ -303,7 +325,7 @@ def validate_solidity_output(code: str) -> tuple[bool, list[str]]:
     #     (see _has_converged_with_solc in econtract_converter.py).
     # The caller is responsible for separating hard (solc) issues from soft ones.
     bad_revert_inside_expr = re.findall(
-        r'\)\s+revert\s+\w+\s*\([^;{]*?\)\s*(?:&&|\|\||,)',
+        r'if\s*\([^)]*\)\s+revert\s+\w+\s*\([^;{]*?\)\s*(?:&&|\|\||,)',
         code,
     )
     if bad_revert_inside_expr:
@@ -512,11 +534,17 @@ class LLMClient:
                         f"Recommended models: {', '.join(RECOMMENDED_MODELS)}"
                     )
 
-    def generate_contract(
+    def generate_contract_raw(
         self, system: str, user: str, validate_pass: bool = True
     ) -> tuple[str, list[str]]:
         """
-        Generate a smart contract.
+        Generate a smart contract WITHOUT running postprocessor fixes.
+
+        WARNING: This is the raw generation path. Output has NOT been passed
+        through apply_all_fixes() and may contain unfixed Solidity issues.
+        Use generate_with_feedback() for production code paths that require
+        postprocessor fixes to be applied.
+
         Returns: (solidity_code, list_of_validation_issues)
         """
         raw  = self._backend.generate(system, user)

@@ -31,8 +31,11 @@ from __future__ import annotations
 import re
 import time
 import calendar
+import logging
 
 from extractor import ContractDocument, ContractClause
+
+logger = logging.getLogger("econtract.prompt_builder")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -140,7 +143,7 @@ MANDATORY SOLIDITY 0.8.16 RULES — follow EVERY rule, no exceptions:
     modifier onlyParties()    { if (msg.sender != _partyA && msg.sender != _partyB) revert Unauthorized(); _; }
     modifier onlyArbitrator() { if (msg.sender != _arbitrator) revert Unauthorized(); _; }
 
-28. CUSTOM ERROR DECLARATIONS — ABSOLUTE RULE:
+27. CUSTOM ERROR DECLARATIONS — ABSOLUTE RULE:
     EVERY `revert X()` MUST have a matching `error X(...);` declaration inside
     the contract. The most commonly forgotten ones are:
         error Unauthorized();
@@ -152,7 +155,7 @@ MANDATORY SOLIDITY 0.8.16 RULES — follow EVERY rule, no exceptions:
     Declare ALL of them at the top of the contract body even if you are not
     sure whether they will be used. Missing error declarations are compile errors.
 
-29. IDENTIFIER DECLARATION — ABSOLUTE RULE:
+28. IDENTIFIER DECLARATION — ABSOLUTE RULE:
     Every identifier used in the contract MUST be declared before use.
     Solidity will refuse to compile ANY undeclared identifier with:
         "Error: Undeclared identifier."
@@ -183,14 +186,14 @@ MANDATORY SOLIDITY 0.8.16 RULES — follow EVERY rule, no exceptions:
     function body, confirm it is declared as a state variable, parameter,
     local variable, or a Solidity built-in (msg, block, address, etc.).
 
-30. IMMUTABLE VARIABLES — ABSOLUTE RULE:
+29. IMMUTABLE VARIABLES — ABSOLUTE RULE:
     `immutable` variables CANNOT be assigned an expression inline at declaration.
         WRONG: uint256 public immutable startDate = EFFECTIVE_DATE;
         RIGHT: uint256 public immutable startDate;
                // then inside constructor:
                startDate = EFFECTIVE_DATE;
 
-31. CONFIDENTIALITY CLAUSE — if the eContract has a confidentiality/NDA clause:
+30. CONFIDENTIALITY CLAUSE — if the eContract has a confidentiality/NDA clause:
     The word "nonDisclos" or "confidential" MUST appear in the Solidity code.
     Use EXACTLY this pattern:
         bool private _confidentialityAcknowledged;
@@ -489,6 +492,14 @@ def _date_to_epoch(date_str: str) -> int:
             y, mo, d = a, b, c
         elif c > 31:
             y = c if c > 99 else 2000 + c
+            if 1 <= a <= 12 and 1 <= b <= 12:
+                # Both a and b could be month or day — silently assumes MM/DD convention.
+                logger.warning(
+                    "_date_to_epoch: ambiguous date '%s' (both %d and %d are valid month values). "
+                    "Assuming MM/DD convention (month=%d, day=%d). "
+                    "Use an unambiguous format such as YYYY-MM-DD to avoid wrong EFFECTIVE_DATE epochs.",
+                    date_str, a, b, a, b,
+                )
             mo, d = (a, b) if 1 <= a <= 12 else (b, a)
         else:
             return 1621296000
@@ -862,7 +873,7 @@ def _derive_fix_hints(
     LLM gets targeted guidance instead of only generic rules.
     """
     hints: list[str] = []
-    ids = {t.test_id for t in failed_tests}
+    ids = {t.test_id for t in failed_tests if hasattr(t, 'test_id')}
 
     _HINT_MAP: dict[str, str] = {
         "SOL-001": "Add `// SPDX-License-Identifier: MIT` as the very first line.",

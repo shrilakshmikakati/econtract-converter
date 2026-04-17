@@ -16,6 +16,11 @@ string trim(const string& s) {
 
 int main(int argc, char* args[])
 {
+    if (argc < 2) {
+        cerr << "Usage: " << args[0] << " <input_file.sol>" << endl;
+        return 1;
+    }
+
     ifstream fin;
     ofstream fout;
 
@@ -24,9 +29,16 @@ int main(int argc, char* args[])
     int condition_count   = 0;
 
     fin.open(inputFileName);
+    if (!fin.is_open()) {
+        cerr << "Error: cannot open input file: " << inputFileName << endl;
+        return 1;
+    }
     fout.open(outputFileName);
-
-    fout << "pragma solidity >=0.4.24;\n";
+    if (!fout.is_open()) {
+        cerr << "Error: cannot open output file: " << outputFileName << endl;
+        fin.close();
+        return 1;
+    }
 
     string codePerLine;
     while (getline(fin, codePerLine))
@@ -36,44 +48,50 @@ int main(int argc, char* args[])
         int pos = 0;
 
         // Skip leading whitespace
-        while (codePerLine[pos] == ' ' || codePerLine[pos] == '\t')
+        while (pos < (int)codePerLine.size() &&
+               (codePerLine[pos] == ' ' || codePerLine[pos] == '\t'))
             pos++;
 
-        // Skip blank lines
-        if (codePerLine[pos] == '\0')
+        // Skip blank lines (empty string or only whitespace)
+        if (pos >= (int)codePerLine.size())
             continue;
 
-        // Extract first word (stops at space, '(' or end)
-        while (codePerLine[pos] != '\0' && codePerLine[pos] != ' ' && codePerLine[pos] != '(')
+        // Extract first word (stops at space, '(' or end-of-string)
+        while (pos < (int)codePerLine.size() &&
+               codePerLine[pos] != ' ' && codePerLine[pos] != '(')
         {
             firstWord = firstWord + codePerLine[pos];
             pos++;
         }
 
-        // ── pragma: skip (we already wrote our own) ──────────────────────────
+        // ── pragma: pass through the contract's own pragma unchanged ─────────
+        // (The old code always replaced it with "pragma solidity >=0.4.24;"
+        //  which conflicts with ^0.8.16 contracts produced by the postprocessor.)
         if (firstWord == "pragma")
         {
-            continue;
+            fout << codePerLine << endl;
         }
 
         // ── for loop ──────────────────────────────────────────────────────────
         else if (firstWord == "for")
         {
             string temp_condition = "";
-            // Skip init clause (up to first ';')
-            while (codePerLine[pos] != ';') pos++;
-            pos++;
+            // Skip init clause (up to first ';') — guard against malformed input
+            while (pos < (int)codePerLine.size() && codePerLine[pos] != ';') pos++;
+            if (pos < (int)codePerLine.size()) pos++; // skip the ';'
 
             // Parse condition clause (up to second ';')
-            while (codePerLine[pos] != ';')
+            while (pos < (int)codePerLine.size() && codePerLine[pos] != ';')
             {
-                if (codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
+                if (pos + 1 < (int)codePerLine.size() &&
+                    codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
                     pos += 2;
                 }
-                else if (codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
@@ -89,12 +107,12 @@ int main(int argc, char* args[])
             condition_count += conditions.size();
 
             // Advance to opening '{'  (may span multiple lines)
-            while (codePerLine[pos] != '{')
+            while (pos >= (int)codePerLine.size() || codePerLine[pos] != '{')
             {
-                if (codePerLine[pos] == '\0')
+                if (pos >= (int)codePerLine.size())
                 {
                     fout << codePerLine << endl;
-                    getline(fin, codePerLine);
+                    if (!getline(fin, codePerLine)) break;
                     pos = 0;
                 }
                 else pos++;
@@ -113,7 +131,7 @@ int main(int argc, char* args[])
         else if (firstWord == "assert")
         {
             string temp = "\trequire";
-            while (codePerLine[pos] != '\0')
+            while (pos < (int)codePerLine.size())
             {
                 temp = temp + codePerLine[pos];
                 pos++;
@@ -129,25 +147,27 @@ int main(int argc, char* args[])
             vector<string> tempCodePerLine;
 
             // Skip spaces then the opening '('
-            while (codePerLine[pos] == ' ') pos++;
-            pos++; // skip '('
+            while (pos < (int)codePerLine.size() && codePerLine[pos] == ' ') pos++;
+            if (pos < (int)codePerLine.size()) pos++; // skip '('
 
             // Parse the condition, respecting nested parens
-            while (codePerLine[pos] != ')' || openbracket != 0)
+            while (pos >= (int)codePerLine.size() || codePerLine[pos] != ')' || openbracket != 0)
             {
-                if (codePerLine[pos] == '\0')
+                if (pos >= (int)codePerLine.size())
                 {
                     tempCodePerLine.push_back(codePerLine);
                     pos = 0;
-                    getline(fin, codePerLine);
+                    if (!getline(fin, codePerLine)) break;
                 }
-                else if (codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
                     pos += 2;
                 }
-                else if (codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
@@ -165,29 +185,67 @@ int main(int argc, char* args[])
             condition_count += conditions.size();
 
             // Determine whether the if-body uses braces or is a single statement.
-            // Skip whitespace after the closing ')'.
+            // Skip whitespace after the closing ')' — may need to look at the next line
+            // if the '{' is on a line of its own (e.g. Allman style).
             int lookPos = pos + 1; // pos is currently on the closing ')'
             while (lookPos < (int)codePerLine.size() &&
                    (codePerLine[lookPos] == ' ' || codePerLine[lookPos] == '\t'))
                 lookPos++;
 
-            bool hasBrace = (lookPos < (int)codePerLine.size() && codePerLine[lookPos] == '{');
+            bool hasBrace = false;
+            if (lookPos < (int)codePerLine.size())
+            {
+                hasBrace = (codePerLine[lookPos] == '{');
+            }
+            else
+            {
+                // '{' may be on the next line — peek ahead without consuming
+                string nextLine;
+                if (getline(fin, nextLine))
+                {
+                    int nlPos = 0;
+                    while (nlPos < (int)nextLine.size() &&
+                           (nextLine[nlPos] == ' ' || nextLine[nlPos] == '\t'))
+                        nlPos++;
+                    hasBrace = (nlPos < (int)nextLine.size() && nextLine[nlPos] == '{');
+                    // Emit continuation lines already stored, then the if-line,
+                    // then the peeked next line so nothing is lost.
+                    for (int k = 0; k < (int)tempCodePerLine.size(); k++)
+                        fout << tempCodePerLine[k] << endl;
+                    for (int i = 0; i < (int)conditions.size(); i++)
+                    {
+                        fout << assertSynthesizer1(conditions[i]) << endl;
+                        fout << assertSynthesizer2(conditions[i]) << endl;
+                    }
+                    fout << codePerLine << endl;
+                    fout << nextLine << endl;
+                    conditions.clear();
+                    tempCodePerLine.clear();
+                    continue; // already emitted everything — go to next iteration
+                }
+            }
 
             if (!hasBrace)
             {
-                // Brace-less single-statement if:  emit assertions, then wrap
-                // the original line in braces so the injector stays consistent.
+                // Brace-less single-statement if: emit assertions BEFORE the if,
+                // then wrap the if + its inline body in an explicit block so that
+                // any variable declaration on the same or next line stays inside
+                // a valid Solidity block (prevents "Variable declarations can only
+                // be used inside blocks" when the body is e.g. `uint256 x = ...`).
                 for (int i = 0; i < (int)conditions.size(); i++)
                 {
                     fout << assertSynthesizer1(conditions[i]) << endl;
                     fout << assertSynthesizer2(conditions[i]) << endl;
                 }
-                // Collect continuation lines already stored
+                // Emit any continuation lines collected while parsing multi-line conditions
                 for (int k = 0; k < (int)tempCodePerLine.size(); k++)
                     fout << tempCodePerLine[k] << endl;
-                // Emit the if-line unchanged (the single-statement body follows on the same line
-                // or the next line — either way it compiles correctly without braces).
+                // Wrap the if-statement in braces so the body is always inside a block.
+                // The original single-statement body (inline or on the next line) is
+                // enclosed: `{ <if-line> }` — valid Solidity for any body kind.
+                fout << "{" << endl;
                 fout << codePerLine << endl;
+                fout << "}" << endl;
             }
             else
             {
@@ -214,25 +272,28 @@ int main(int argc, char* args[])
             vector<string> tempCodePerLine;
 
             // Skip spaces then the opening '('
-            while (codePerLine[pos] == ' ') pos++;
-            pos++; // skip '('
+            while (pos < (int)codePerLine.size() && codePerLine[pos] == ' ') pos++;
+            if (pos < (int)codePerLine.size()) pos++; // skip '('
 
             // Parse up to matching ')' or ',' (the optional error string separator)
-            while ((codePerLine[pos] != ')' && codePerLine[pos] != ',') || openbracket != 0)
+            while (pos < (int)codePerLine.size() &&
+                   ((codePerLine[pos] != ')' && codePerLine[pos] != ',') || openbracket != 0))
             {
-                if (codePerLine[pos] == '\0')
+                if (pos >= (int)codePerLine.size())
                 {
                     tempCodePerLine.push_back(codePerLine);
                     pos = 0;
-                    getline(fin, codePerLine);
+                    if (!getline(fin, codePerLine)) break;
                 }
-                else if (codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
                     pos += 2;
                 }
-                else if (codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
@@ -271,24 +332,28 @@ int main(int argc, char* args[])
             string temp_condition = "";
             int openbracket = 0;
 
-            while (codePerLine[pos] != '(') pos++;
-            pos++; // skip '('
+            // Advance to '(' — guard against malformed input
+            while (pos < (int)codePerLine.size() && codePerLine[pos] != '(') pos++;
+            if (pos < (int)codePerLine.size()) pos++; // skip '('
 
-            while (codePerLine[pos] != ')' || openbracket != 0)
+            while (pos >= (int)codePerLine.size() || codePerLine[pos] != ')' || openbracket != 0)
             {
-                if (codePerLine[pos] == '\0')
+                if (pos >= (int)codePerLine.size())
                 {
-                    fout << codePerLine << endl;
+                    // Do NOT emit the partial line here — store it and continue
+                    // (the old code emitted codePerLine mid-parse, corrupting output order)
                     pos = 0;
-                    getline(fin, codePerLine);
+                    if (!getline(fin, codePerLine)) break;
                 }
-                else if (codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '|' && codePerLine[pos+1] == '|')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
                     pos += 2;
                 }
-                else if (codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
+                else if (pos + 1 < (int)codePerLine.size() &&
+                         codePerLine[pos] == '&' && codePerLine[pos+1] == '&')
                 {
                     conditions.push_back(trim(temp_condition));
                     temp_condition = "";
@@ -306,12 +371,12 @@ int main(int argc, char* args[])
             condition_count += conditions.size();
 
             // Advance to opening '{'
-            while (codePerLine[pos] != '{')
+            while (pos >= (int)codePerLine.size() || codePerLine[pos] != '{')
             {
-                if (codePerLine[pos] == '\0')
+                if (pos >= (int)codePerLine.size())
                 {
                     fout << codePerLine << endl;
-                    getline(fin, codePerLine);
+                    if (!getline(fin, codePerLine)) break;
                     pos = 0;
                 }
                 else pos++;
