@@ -1,21 +1,26 @@
 {
-  "conversion_timestamp": "2026-04-20T11:47:56Z",
-  "elapsed_seconds": 168.34,
-  "source_file": "/home/archikiess/Projects/econtract-converter/contract_45.txt",
-  "output_file": "/home/archikiess/Projects/econtract-converter/Results/contract_45/contract_45.sol",
-  "contract_title": "Execution Version     Agreement And Plan Of Merger",
+  "conversion_timestamp": "2026-04-20T11:35:31Z",
+  "elapsed_seconds": 433.52,
+  "source_file": "/home/archikiess/Projects/econtract-converter/contract_99.txt",
+  "output_file": "/home/archikiess/Projects/econtract-converter/Results/contract_99/contract_99.sol",
+  "contract_title": "Agreement And Plan Of Merger",
   "parties": [
+    {
+      "role": "Parent",
+      "name": "Delaware limited liability company",
+      "wallet": null
+    },
     {
       "role": "Merger Sub",
       "name": "Parent",
       "wallet": null
     }
   ],
-  "clauses_extracted": 53,
-  "effective_date": "May 10, 2021",
-  "expiry_date": "May 11, 2022",
+  "clauses_extracted": 61,
+  "effective_date": "July 23, 2021",
+  "expiry_date": null,
   "governing_law": null,
-  "char_count": 344244,
+  "char_count": 383696,
   "validation_issues": [],
   "validation_passed": true,
   "accuracy": {
@@ -26,8 +31,8 @@
     "coverage": 100.0
   },
   "test_suite": {
-    "total_tests": 46,
-    "passed": 46,
+    "total_tests": 48,
+    "passed": 48,
     "failed": 0,
     "critical_failures": 0,
     "results": [
@@ -77,7 +82,7 @@
         "description": "Events are emitted (emit statements)",
         "passed": true,
         "severity": "major",
-        "detail": "Found 3 emit(s)"
+        "detail": "Found 5 emit(s)"
       },
       {
         "test_id": "SOL-007",
@@ -312,12 +317,20 @@
         "detail": ""
       },
       {
+        "test_id": "COV-050",
+        "category": "coverage",
+        "description": "Confidentiality acknowledged on-chain",
+        "passed": true,
+        "severity": "minor",
+        "detail": ""
+      },
+      {
         "test_id": "LEG-010",
         "category": "legal",
         "description": "Contract name reflects eContract title",
         "passed": true,
         "severity": "minor",
-        "detail": "Title words found: 5/5: ['execution', 'version', 'agreement', 'plan', 'merger']"
+        "detail": "Title words found: 3/3: ['agreement', 'plan', 'merger']"
       },
       {
         "test_id": "LEG-030",
@@ -325,7 +338,7 @@
         "description": "Effective/start date encoded (as timestamp or comment)",
         "passed": true,
         "severity": "info",
-        "detail": "Effective date: May 10, 2021"
+        "detail": "Effective date: July 23, 2021"
       },
       {
         "test_id": "LEG-070",
@@ -352,17 +365,9 @@
         "detail": ""
       },
       {
-        "test_id": "CLS-PAYMEN",
-        "category": "coverage",
-        "description": "Clause 'Preamble' [payment] encoded on-chain",
-        "passed": true,
-        "severity": "major",
-        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay|depositPayment']"
-      },
-      {
         "test_id": "CLS-GENERA",
         "category": "coverage",
-        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [general] encoded on-chain",
+        "description": "Clause 'Preamble' [general] encoded on-chain",
         "passed": true,
         "severity": "minor",
         "detail": "Keywords matched 2/2: ['contract\\\\s+\\\\w+', 'constructor']"
@@ -370,36 +375,52 @@
       {
         "test_id": "CLS-EXPIRY",
         "category": "coverage",
-        "description": "Clause 'R E C I T A L S' [expiry] encoded on-chain",
+        "description": "Clause 'The Merger 9 2.2 Closing and Effective Time of the Merger 10 2.3 Governance Matters 10' [expiry] encoded on-chain",
         "passed": true,
         "severity": "minor",
         "detail": "Keywords matched 2/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
       },
       {
-        "test_id": "CLS-OBLIGA",
+        "test_id": "CLS-PAYMEN",
         "category": "coverage",
-        "description": "Clause 'ARTICLE III REPRESENTATIONS AND WARRANTIES OF THE COMPANY' [obligation] encoded on-chain",
-        "passed": true,
-        "severity": "minor",
-        "detail": "Keywords matched 2/3: ['_state\\\\s*=', 'Completed|Active|Created', 'deliver|Deliver']"
-      },
-      {
-        "test_id": "CLS-PENALT",
-        "category": "coverage",
-        "description": "Clause 'Compliance with Laws and Court Orders; Governmental Authorizations.' [penalty] encoded on-chain",
+        "description": "Clause 'Conversion of Securities 11 3.2 Payment for Securities; Surrender of Certificates 11 3.3 Dissenting Shares 15 3.4 Treatment of Company Equity Awards 16 3.5 Withholding Rights 17 3.6 Further Actions 17' [payment] encoded on-chain",
         "passed": true,
         "severity": "major",
-        "detail": "Keywords matched 1/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
+        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay|depositPayment']"
+      },
+      {
+        "test_id": "CLS-OBLIGA",
+        "category": "coverage",
+        "description": "Clause 'Schedule 14D-9; Schedule TO 35 4.24 Brokers 36 4.25 State Takeover Statutes 36 4.26 Affiliate Transactions 36 4.27 Corrupt Practices; Sanctions 36 4.28 No Other Representations or Warranties 37' [obligation] encoded on-chain",
+        "passed": true,
+        "severity": "minor",
+        "detail": "Keywords matched 3/3: ['_state\\\\s*=', 'Completed|Active|Created', 'deliver|Deliver']"
+      },
+      {
+        "test_id": "CLS-CONFID",
+        "category": "coverage",
+        "description": "Clause 'Conduct of Business by the Company and Parent Pending the Closing 43 6.2 Access to Information; Confidentiality 48 6.3 No Solicitation by the Company 49 6.4 Efforts 53 6.5 Merger 55 6.6 Public Announcements 55 6.7 Employee Benefit Matters 56 6.8 Indemnification of Directors and Officers 58 6.9 Takeover Statutes 60 6.10 Section 16 Matters 60 6.11 Stockholder Litigation 60 6.12 Stock Exchange Delisting and Deregistration 61 6.13 14D-10 Matters 61 6.14 Financing Cooperation 61 6.15 Financing 68 6.16 Section 338(h)(10) Election 71' [confidential] encoded on-chain",
+        "passed": true,
+        "severity": "minor",
+        "detail": "Keywords matched 2/2: ['confidential|nonDisclos', 'acknowledged|Acknowledged']"
       },
       {
         "test_id": "CLS-DISPUT",
         "category": "coverage",
-        "description": "Clause 'Litigation.' [dispute] encoded on-chain",
+        "description": "Clause 'Organization and Qualification; Subsidiaries.' [dispute] encoded on-chain",
         "passed": true,
         "severity": "major",
         "detail": "Keywords matched 2/3: ['disput|Disput', 'arbitrat|Arbitrat', 'escrow|Escrow']"
+      },
+      {
+        "test_id": "CLS-PENALT",
+        "category": "coverage",
+        "description": "Clause 'No Conflict. None of the execution, delivery or performance of this Agreement by the Company or the consummation by the Company of the Merger or any other transaction contemplated by this Agreement will (with or without notice or lapse of time, or both) conflict with or violate any provision of the Company Charter or the Company Bylaws in any material respect. Except as would not have or reasonably be expected to have, individually or in the aggregate, a Company Material Adverse Effect, none of the execution, delivery or performance of this Agreement by the Company or the consummation by the Company of the Merger, the Offer -20-' [penalty] encoded on-chain",
+        "passed": true,
+        "severity": "major",
+        "detail": "Keywords matched 2/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
       }
     ]
   },
-  "test_summary": "Validation: 46/46 passed | Accuracy: 100.0% | Critical failures: 0"
+  "test_summary": "Validation: 48/48 passed | Accuracy: 100.0% | Critical failures: 0"
 }

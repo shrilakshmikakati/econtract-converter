@@ -1,6 +1,0 @@
-Error: Undeclared identifier.
-  --> Results/contract_10-bmc/Assert/contract_10.sol:51:9:
-   |
-51 |         _confidentialityAcknowledged = true;
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-

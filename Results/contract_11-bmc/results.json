@@ -1,6 +1,6 @@
 {
-  "conversion_timestamp": "2026-04-20T10:09:02Z",
-  "elapsed_seconds": 870.62,
+  "conversion_timestamp": "2026-04-20T11:27:01Z",
+  "elapsed_seconds": 318.24,
   "source_file": "/home/archikiess/Projects/econtract-converter/contract_11.txt",
   "output_file": "/home/archikiess/Projects/econtract-converter/Results/contract_11/contract_11.sol",
   "contract_title": "Agreement And Plan Of Merger",
@@ -126,7 +126,7 @@
         "description": "At least 3 events declared",
         "passed": true,
         "severity": "major",
-        "detail": "Found 7 event(s)"
+        "detail": "Found 6 event(s)"
       },
       {
         "test_id": "SOL-006",
@@ -134,7 +134,7 @@
         "description": "Events are emitted (emit statements)",
         "passed": true,
         "severity": "major",
-        "detail": "Found 8 emit(s)"
+        "detail": "Found 7 emit(s)"
       },
       {
         "test_id": "SOL-007",

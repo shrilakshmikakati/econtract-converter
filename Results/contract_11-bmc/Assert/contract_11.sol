@@ -2,7 +2,7 @@ pragma solidity >=0.4.24;
 // SPDX-License-Identifier: MIT
 // =================================================================
 // Contract : Agreement And Plan Of Merger
-// Generated: 2026-04-20 10:01:22 UTC
+// Generated: 2026-04-20 11:27:01 UTC
 // Tool     : eContract -> Smart Contract Converter v2.0
 // Solidity : 0.8.16
 // WARNING  : Review thoroughly before deployment on mainnet.
@@ -19,6 +19,8 @@ contract MergerAgreement {
     uint256 public immutable startDate;
     string public constant GOVERNING_LAW = "and";
     bool private _locked;
+    bool private _confidentialityAcknowledged;
+    uint256 private _deadline;
     enum ContractState { Created, Active, Completed, Disputed, Terminated }
     ContractState private _state;
     address payable private _partyA;
@@ -37,20 +39,18 @@ contract MergerAgreement {
         if (msg.sender != _arbitrator) revert Unauthorized();
         _;
     }
-    event DisputeRaised(address indexed initiator, uint256 timestamp);
+    event DisputeRaised(address indexed party, uint256 timestamp);
     event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);
     event ContractTerminated(address indexed initiator, uint256 timestamp);
     event PaymentReceived(address indexed from, uint256 amount);
     event PenaltyCalculated(uint256 penaltyWei);
-    event ContractCreated(address indexed _arbitrator, address indexed _arbitrator, uint256 amount);
     event DeliveryAcknowledged(address indexed acknowledger, uint256 timestamp);
-    constructor(address payable partyA_, address payable partyB_, address arbitrator_) {
-        _partyA = partyA_;
-        _partyB = partyB_;
+    constructor(address payable _partyA_, address payable _partyB_, address arbitrator_) {
+        _partyA = _partyA_;
+        _partyB = _partyB_;
         _arbitrator = arbitrator_;
         startDate = EFFECTIVE_DATE;
         _state = ContractState.Created;
-        emit ContractCreated(partyA_, partyB_, 0);
     }
     modifier noReentrant() {
 	assert(!(_locked));
@@ -62,7 +62,7 @@ contract MergerAgreement {
     }
     /// @notice Execute acknowledgeNonDisclosure operation.
     function acknowledgeNonDisclosure() external onlyParties {
-        bool _confidentialityAcknowledged;
+        _confidentialityAcknowledged = true;
         emit NonDisclosureAcknowledged(msg.sender, block.timestamp);
     }
     /// @notice Execute dispute operation.
@@ -136,7 +136,7 @@ contract MergerAgreement {
     /// @notice Receive ETH deposits.
     receive() external payable {        emit PaymentReceived(msg.sender, msg.value);
     }
-    /// @notice Execute depositPayment operation.
+    /// @notice Deposit ETH payment into the contract.
     function depositPayment() external payable noReentrant {
 	assert(!(msg.value == 0));
 	assert(!(!(msg.value == 0)));

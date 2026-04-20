@@ -1,0 +1,24 @@
+Error: Undeclared identifier. Did you mean "amount_"?
+   --> Results/contract_90-bmc/Assert/contract_90.sol:104:70:
+    |
+104 |         return (_partyA, _partyB, _arbitrator, uint8(contractState), _amount, _deadline);
+    |                                                                      ^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_90-bmc/Assert/contract_90.sol:110:24:
+    |
+110 | 	assert(!(msg.value != _amount));
+    | 	                      ^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_90-bmc/Assert/contract_90.sol:111:26:
+    |
+111 | 	assert(!(!(msg.value != _amount)));
+    | 	                        ^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_90-bmc/Assert/contract_90.sol:112:26:
+    |
+112 |         if (msg.value != _amount) revert InsufficientPayment(msg.value, 0);
+    |                          ^^^^^^^
+

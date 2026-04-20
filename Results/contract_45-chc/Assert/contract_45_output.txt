@@ -1,104 +1,101 @@
-Warning: Unused local variable.
-  --> Results/contract_45-chc/Assert/contract_45.sol:65:9:
+Warning: This declaration shadows an existing declaration.
+  --> Results/contract_45-chc/Assert/contract_45.sol:56:9:
    |
-65 |         bool _confidentialityAcknowledged;
+56 |         bool _confidentialityAcknowledged;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: The shadowed declaration is here:
+  --> Results/contract_45-chc/Assert/contract_45.sol:22:5:
+   |
+22 |     bool private _confidentialityAcknowledged;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: Unused local variable.
+  --> Results/contract_45-chc/Assert/contract_45.sol:56:9:
+   |
+56 |         bool _confidentialityAcknowledged;
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Warning: CHC: Error trying to invoke SMT solver.
-  --> Results/contract_45-chc/Assert/contract_45.sol:84:2:
+  --> Results/contract_45-chc/Assert/contract_45.sol:48:2:
    |
-84 | 	assert(!(state != ContractState.Active));
+48 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:25:2:
+   |
+25 | 	assert(!(!(msg.sender == parentParty) ));
    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Warning: CHC: Error trying to invoke SMT solver.
-  --> Results/contract_45-chc/Assert/contract_45.sol:89:2:
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:26:2:
    |
-89 | 	assert(!(!ok));
-   | 	^^^^^^^^^^^^^^
-
-Warning: CHC: Error trying to invoke SMT solver.
-  --> Results/contract_45-chc/Assert/contract_45.sol:90:2:
-   |
-90 | 	assert(!(!(!ok)));
-   | 	^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Error trying to invoke SMT solver.
-  --> Results/contract_45-chc/Assert/contract_45.sol:96:2:
-   |
-96 | 	assert(!(state != ContractState.Disputed));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Error trying to invoke SMT solver.
-   --> Results/contract_45-chc/Assert/contract_45.sol:109:2:
-    |
-109 | 	assert(!(!(state == ContractState.Terminated)));
-    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Error trying to invoke SMT solver.
-   --> Results/contract_45-chc/Assert/contract_45.sol:113:2:
-    |
-113 | 	assert(!(address(this).balance > 0));
-    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 | 	assert(!(!(!(msg.sender == parentParty) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:29:2:
+  --> Results/contract_45-chc/Assert/contract_45.sol:27:2:
    |
-29 | 	assert(!(!(msg.sender == _partyA) ));
+27 | 	assert(!( !(msg.sender == companyParty)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:28:2:
+   |
+28 | 	assert(!(!( !(msg.sender == companyParty))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:33:2:
+   |
+33 | 	assert(!(msg.sender != _arbitrator));
    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:30:2:
+  --> Results/contract_45-chc/Assert/contract_45.sol:34:2:
    |
-30 | 	assert(!(!(!(msg.sender == _partyA) )));
+34 | 	assert(!(!(msg.sender != _arbitrator)));
    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:31:2:
+Warning: CHC: Assertion violation might happen here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:48:2:
    |
-31 | 	assert(!( !(msg.sender == _partyB)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:32:2:
-   |
-32 | 	assert(!(!( !(msg.sender == _partyB))));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:37:2:
-   |
-37 | 	assert(!(msg.sender != _arbitrator));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:38:2:
-   |
-38 | 	assert(!(!(msg.sender != _arbitrator)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Warning: CHC: Assertion violation happens here.
-  --> Results/contract_45-chc/Assert/contract_45.sol:57:2:
-   |
-57 | 	assert(!(!(_locked)));
+48 | 	assert(!(!(_locked)));
    | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:70:2:
+   |
+70 | 	assert(!(!(principal > 0) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Warning: CHC: Assertion violation happens here.
   --> Results/contract_45-chc/Assert/contract_45.sol:71:2:
    |
-71 | 	assert(!(!(state == ContractState.Disputed)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+71 | 	assert(!(!(!(principal > 0) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Warning: CHC: Assertion violation happens here.
-   --> Results/contract_45-chc/Assert/contract_45.sol:132:2:
-    |
-132 | 	assert(!(msg.value == 0));
-    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> Results/contract_45-chc/Assert/contract_45.sol:72:2:
+   |
+72 | 	assert(!( !(rate > 0)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^
 
 Warning: CHC: Assertion violation happens here.
-   --> Results/contract_45-chc/Assert/contract_45.sol:133:2:
-    |
-133 | 	assert(!(!(msg.value == 0)));
-    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> Results/contract_45-chc/Assert/contract_45.sol:73:2:
+   |
+73 | 	assert(!(!( !(rate > 0))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Warning: CHC: 20 verification condition(s) could not be proved. Enable the model checker option "show unproved" to see all of them. Consider choosing a specific contract to be verified in order to reduce the solving problems. Consider increasing the timeout per query.
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:91:2:
+   |
+91 | 	assert(!(msg.value <= 0));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:92:2:
+   |
+92 | 	assert(!(!(msg.value <= 0)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

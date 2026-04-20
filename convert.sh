@@ -78,6 +78,7 @@ if [ "$2" == "bmc" ]
 then
 #sol_comp=$( solc "$SOL_FILE" --model-checker-engine bmc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/$resultFile )	
 sol_comp=$( solc "./$RESULT_DIR/$name-$2/Assert/${new_file}.sol" --model-checker-engine bmc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/Assert/$resultFile )	
+#solc --model-checker-engine chc --model-checker-timeout 10000 --model-checker-show-unproved YourContract.sol
 sed -i 's/Warning: BMC:/CheckPoint\nWarning: BMC:/g' ./$RESULT_DIR/$name-$2/Assert/$resultFile 
 
 sed -n '/Warning: BMC: Assertion violation happens here./, /CheckPoint/p' ./$RESULT_DIR/$name-$2/Assert/$resultFile &> ./$RESULT_DIR/$name-$2/Assert/$outputfile 
@@ -86,6 +87,7 @@ fi
 if [ "$2" == "chc" ]
 then
 sol_comp=$( solc "./$RESULT_DIR/$name-$2/Assert/${new_file}.sol" --model-checker-engine chc --model-checker-targets assert  &> ./$RESULT_DIR/$name-$2/Assert/$resultFile )	
+#sol_comp=$( solc "./$RESULT_DIR/$name-$2/Assert/${new_file}.sol" --model-checker-engine chc --model-checker-targets assert --model-checker-timeout 10000 --model-checker-show-unproved &> ./$RESULT_DIR/$name-$2/Assert/$resultFile )
 sed -i 's/Warning: CHC:/CheckPoint\nWarning: CHC:/g' ./$RESULT_DIR/$name-$2/Ass# ── Banner ─────────────────────────────────────────────────────────────────
 BANNER = """
 ╔══════════════════════════════════════════════════════════════╗

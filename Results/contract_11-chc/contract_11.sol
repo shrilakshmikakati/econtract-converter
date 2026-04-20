@@ -3,7 +3,7 @@ pragma solidity ^0.8.16;
 
 // =================================================================
 // Contract : Agreement And Plan Of Merger
-// Generated: 2026-04-20 11:27:01 UTC
+// Generated: 2026-04-20 11:11:22 UTC
 // Tool     : eContract -> Smart Contract Converter v2.0
 // Solidity : 0.8.16
 // WARNING  : Review thoroughly before deployment on mainnet.
@@ -63,6 +63,11 @@ contract MergerAgreement {
         _locked = false;
     }
 
+    modifier onlyPartyA() {
+        if (msg.sender != _partyA) revert Unauthorized();
+        _;
+    }
+
     /// @notice Execute acknowledgeNonDisclosure operation.
     function acknowledgeNonDisclosure() external onlyParties {
         _confidentialityAcknowledged = true;
@@ -79,7 +84,7 @@ contract MergerAgreement {
     }
 
     /// @notice Execute acknowledgeDelivery operation.
-    function acknowledgeDelivery() external onlyParties {
+    function acknowledgeDelivery() external onlyPartyA {
         if (_state != ContractState.Active) revert InvalidState(uint8(_state), uint8(ContractState.Active));
         _state = ContractState.Completed;
         (bool ok,) = _partyB.call{value: address(this).balance}("");
@@ -126,9 +131,9 @@ contract MergerAgreement {
     receive() external payable {        emit PaymentReceived(msg.sender, msg.value);
     }
 
-    /// @notice Deposit ETH payment into the contract.
+    /// @notice Execute depositPayment operation.
     function depositPayment() external payable noReentrant {
-            if (msg.value == 0) revert InsufficientPayment(msg.value, 0);
+        if (msg.value == 0) revert InsufficientPayment(msg.value, 0);
         emit PaymentReceived(msg.sender, msg.value);
     }
 }

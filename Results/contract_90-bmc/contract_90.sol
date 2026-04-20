@@ -2,8 +2,8 @@
 pragma solidity ^0.8.16;
 
 // =================================================================
-// Contract : Execution Version     Agreement And Plan Of Merger
-// Generated: 2026-04-20 11:47:56 UTC
+// Contract : Agreement And Plan Of Merger
+// Generated: 2026-04-20 11:33:58 UTC
 // Tool     : eContract -> Smart Contract Converter v2.0
 // Solidity : 0.8.16
 // WARNING  : Review thoroughly before deployment on mainnet.
@@ -17,17 +17,22 @@ contract AgreementAndPlanOfMerger {
     error ReentrantCall();
     error Unauthorized();
 
-    enum ContractState { Created, Active, Completed, Disputed, Terminated }
-    uint256 public constant EFFECTIVE_DATE = 1620604800; // May 10, 2021
+    address private _arbitrator;
+    uint256 public constant EFFECTIVE_DATE = 1594512000; // July 12, 2020
     uint256 public immutable startDate;
     string public constant GOVERNING_LAW = "General";
     bool private _locked;
     bool private _confidentialityAcknowledged;
+    uint256 private _deadline;
 
-    address private _arbitrator;
+    ContractState public contractState;
 
+    enum ContractState { Created, Active, Completed, Disputed, Terminated }
+
+    address payable private _partyA;
+    address payable private _partyB;
     modifier onlyParties() {
-        if (!(msg.sender == parentParty) && !(msg.sender == companyParty)) revert Unauthorized();
+        if (!(msg.sender == _partyA) && !(msg.sender == _partyB)) revert Unauthorized();
         _;
     }
 
@@ -36,75 +41,75 @@ contract AgreementAndPlanOfMerger {
         _;
     }
 
-    event DisputeRaised(address indexed party, uint256 timestamp);
     event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);
+    event DisputeRaised(address indexed party, uint256 timestamp);
+    event ContractTerminated(address indexed initiator, uint256 timestamp);
+    event PaymentReceived(address indexed from, uint256 amount);
+    event PenaltyCalculated(uint256 penaltyWei);
 
-    constructor(address parentParty_, address companyParty_, address arbitrator_) {
+    constructor(address payable _partyA_, address payable _partyB_, address _arbitrator_) {
         startDate = EFFECTIVE_DATE;
-        parentParty = parentParty_;
-        companyParty = companyParty_;
-        _arbitrator = arbitrator_;
+        _partyA = _partyA_;
+        _partyB = _partyB_;
+        _arbitrator = _arbitrator_;
+        contractState = ContractState.Created;
     }
 
     modifier noReentrant() {
-        if (_locked) revert Unauthorized();
+        if (_locked) revert ReentrantCall();
         _locked = true;
         _;
         _locked = false;
     }
+
     /// @notice Execute acknowledgeNonDisclosure operation.
     function acknowledgeNonDisclosure() external onlyParties {
-        bool _confidentialityAcknowledged;
+        _confidentialityAcknowledged = true;
         emit NonDisclosureAcknowledged(msg.sender, block.timestamp);
     }
 
     /// @notice Execute dispute operation.
     function dispute() external onlyArbitrator {
-        state = ContractState.Disputed;
+        if (contractState != ContractState.Active) revert InvalidState(uint8(contractState), uint8(ContractState.Active));
+        contractState = ContractState.Disputed;
         emit DisputeRaised(msg.sender, block.timestamp);
     }
 
     /// @notice Execute acknowledgeDelivery operation.
     function acknowledgeDelivery() external onlyParties {
-        state = ContractState.Completed;
+        if (contractState != ContractState.Active) revert InvalidState(uint8(contractState), uint8(ContractState.Active));
+        contractState = ContractState.Completed;
+        emit PaymentReceived(_partyB, address(this).balance);
     }
 
     /// @notice Execute calculatePenalty operation.
     function calculatePenalty(uint256 principal, uint256 rate) external onlyArbitrator returns (uint256) {
-        if (!(principal > 0) || !(rate > 0)) revert Unauthorized();
+        if (!(principal > 0) || !(rate > 0)) revert InsufficientPayment(0, 1);
         uint256 penalty = principal * rate / 100;
-        emit PenaltyCalculated(msg.sender, block.timestamp, penalty);
+        emit PenaltyCalculated(penalty);
         return penalty;
     }
 
     /// @notice Execute terminate operation.
     function terminate() external onlyParties {
-        state = ContractState.Terminated;
+        if (contractState == ContractState.Terminated) revert InvalidState(uint8(contractState), uint8(ContractState.Active));
+        contractState = ContractState.Terminated;
+        emit PaymentReceived(_partyA, address(this).balance);
     }
 
     /// @notice Execute getContractState operation.
-    function getContractState() external view returns (ContractState) {
-        return state;
+    function getContractState() external view returns (address partyA_, address partyB_, address arbitrator_, uint8 state_, uint256 amount_, uint256 deadline_) {
+        return (_partyA, _partyB, _arbitrator, uint8(contractState), _amount, _deadline);
     }
 
     /// @notice Receive ETH deposits.
     receive() external payable {}
 
-
-    /// @notice Execute pay operation.
-    function pay() external onlyParties payable noReentrant {
-        if (msg.value <= 0) revert Unauthorized();
-        // Payment logic here
+    /// @notice Deposit ETH payment into the contract.
+    function depositPayment() external payable noReentrant {
+        if (msg.value != _amount) revert InsufficientPayment(msg.value, 0);
+        emit PaymentReceived(msg.sender, msg.value);
     }
-
-    ContractState public state = ContractState.Created;
-    address public parentParty;
-    address public companyParty;
-    uint256 private _deadline; // contract expiry (unix timestamp)
-
-    event PenaltyCalculated(address indexed party, uint256 timestamp, uint256 penalty);
-    event ContractTerminated(address indexed initiator, uint256 timestamp);
-    event PaymentReceived(address indexed from, uint256 amount);
 
     /// @notice Set the contract expiry deadline (seconds from now).
     function setDeadline(uint256 durationSeconds) external onlyArbitrator {

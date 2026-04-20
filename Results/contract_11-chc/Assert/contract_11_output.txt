@@ -1,0 +1,156 @@
+Warning: CHC: Error trying to invoke SMT solver.
+  --> Results/contract_11-chc/Assert/contract_11.sol:90:2:
+   |
+90 | 	assert(!(_state != ContractState.Active));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Error trying to invoke SMT solver.
+  --> Results/contract_11-chc/Assert/contract_11.sol:95:2:
+   |
+95 | 	assert(!(!ok));
+   | 	^^^^^^^^^^^^^^
+
+Warning: CHC: Error trying to invoke SMT solver.
+  --> Results/contract_11-chc/Assert/contract_11.sol:96:2:
+   |
+96 | 	assert(!(!(!ok)));
+   | 	^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Error trying to invoke SMT solver.
+   --> Results/contract_11-chc/Assert/contract_11.sol:102:2:
+    |
+102 | 	assert(!(_state != ContractState.Disputed));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Error trying to invoke SMT solver.
+  --> Results/contract_11-chc/Assert/contract_11.sol:57:2:
+   |
+57 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Error trying to invoke SMT solver.
+   --> Results/contract_11-chc/Assert/contract_11.sol:117:2:
+    |
+117 | 	assert(!(!(_state == ContractState.Terminated)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:29:2:
+   |
+29 | 	assert(!(msg.sender != _partyA ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+_arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0x0
+
+Transaction trace:
+MergerAgreement.constructor(0x0, 0x0, 0x0)
+State: _arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0x0
+MergerAgreement.acknowledgeNonDisclosure(){ block.timestamp: 38, msg.sender: 0x0 }
+  --> Results/contract_11-chc/Assert/contract_11.sol:30:2:
+   |
+30 | 	assert(!(!(msg.sender != _partyA )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+_arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0xffffffffffffffffffffffffffffffffffffe1d8
+
+Transaction trace:
+MergerAgreement.constructor(0x0, 0xffffffffffffffffffffffffffffffffffffe1d8, 0x0)
+State: _arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0xffffffffffffffffffffffffffffffffffffe1d8
+MergerAgreement.acknowledgeNonDisclosure(){ block.timestamp: 38, msg.sender: 0xffffffffffffffffffffffffffffffffffffe1d7 }
+  --> Results/contract_11-chc/Assert/contract_11.sol:31:2:
+   |
+31 | 	assert(!( msg.sender != _partyB));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:32:2:
+   |
+32 | 	assert(!(!( msg.sender != _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:37:2:
+   |
+37 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+_arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0x0
+
+Transaction trace:
+MergerAgreement.constructor(0x0, 0x0, 0x0)
+State: _arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0x0
+MergerAgreement.dispute(){ block.timestamp: 38, msg.sender: 0x0 }
+  --> Results/contract_11-chc/Assert/contract_11.sol:38:2:
+   |
+38 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:57:2:
+   |
+57 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:64:2:
+   |
+64 | 	assert(!(msg.sender != _partyA));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+_arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0x0
+
+Transaction trace:
+MergerAgreement.constructor(0x0, 0x0, 0x0)
+State: _arbitrator = 0x0, EFFECTIVE_DATE = 1624406400, startDate = 1624406400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _confidentialityAcknowledged = false, _deadline = 0, _state = 0, _partyA = 0x0, _partyB = 0x0
+MergerAgreement.acknowledgeDelivery(){ block.timestamp: 38, msg.sender: 0x0 }
+  --> Results/contract_11-chc/Assert/contract_11.sol:65:2:
+   |
+65 | 	assert(!(!(msg.sender != _partyA)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:77:2:
+   |
+77 | 	assert(!(!(_state == ContractState.Disputed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:80:2:
+   |
+80 | 	assert(!(!(_state == ContractState.Completed )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_11-chc/Assert/contract_11.sol:82:2:
+   |
+82 | 	assert(!(!( _state == ContractState.Terminated)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_11-chc/Assert/contract_11.sol:107:2:
+    |
+107 | 	assert(!(!(block.timestamp <= _deadline)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_11-chc/Assert/contract_11.sol:147:2:
+    |
+147 | 	assert(!(msg.value == 0));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_11-chc/Assert/contract_11.sol:148:2:
+    |
+148 | 	assert(!(!(msg.value == 0)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: 18 verification condition(s) could not be proved. Enable the model checker option "show unproved" to see all of them. Consider choosing a specific contract to be verified in order to reduce the solving problems. Consider increasing the timeout per query.
+

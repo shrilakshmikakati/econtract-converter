@@ -1,34 +1,41 @@
 {
-  "conversion_timestamp": "2026-04-20T11:47:56Z",
-  "elapsed_seconds": 168.34,
-  "source_file": "/home/archikiess/Projects/econtract-converter/contract_45.txt",
-  "output_file": "/home/archikiess/Projects/econtract-converter/Results/contract_45/contract_45.sol",
-  "contract_title": "Execution Version     Agreement And Plan Of Merger",
+  "conversion_timestamp": "2026-04-20T11:41:07Z",
+  "elapsed_seconds": 739.72,
+  "source_file": "/home/archikiess/Projects/econtract-converter/contract_90.txt",
+  "output_file": "/home/archikiess/Projects/econtract-converter/Results/contract_90/contract_90.sol",
+  "contract_title": "Agreement And Plan Of Merger",
   "parties": [
     {
-      "role": "Merger Sub",
-      "name": "Parent",
+      "role": "Parent",
+      "name": "Massachusetts corporation",
+      "wallet": null
+    },
+    {
+      "role": "Acquisition Sub",
+      "name": "Delaware corporation and a wholly owned subsidiary of Parent",
       "wallet": null
     }
   ],
-  "clauses_extracted": 53,
-  "effective_date": "May 10, 2021",
-  "expiry_date": "May 11, 2022",
+  "clauses_extracted": 63,
+  "effective_date": "July 12, 2020",
+  "expiry_date": "June 27, 2020",
   "governing_law": null,
-  "char_count": 344244,
-  "validation_issues": [],
-  "validation_passed": true,
+  "char_count": 356160,
+  "validation_issues": [
+    "[SOFT] Malformed if-revert syntax (3 occurrence(s)): `revert` found inside a condition expression (e.g. `...) revert Err() && ...`). This is a compile error. Each guard must be a standalone statement: `if (!condition) revert Error();`  For compound conditions use: `if (a != X || b != Y) revert Unauthorized();`"
+  ],
+  "validation_passed": false,
   "accuracy": {
-    "overall": 100.0,
+    "overall": 98.8,
     "solidity": 100.0,
     "security": 100.0,
-    "legal": 100.0,
+    "legal": 87.5,
     "coverage": 100.0
   },
   "test_suite": {
-    "total_tests": 46,
-    "passed": 46,
-    "failed": 0,
+    "total_tests": 43,
+    "passed": 42,
+    "failed": 1,
     "critical_failures": 0,
     "results": [
       {
@@ -77,7 +84,7 @@
         "description": "Events are emitted (emit statements)",
         "passed": true,
         "severity": "major",
-        "detail": "Found 3 emit(s)"
+        "detail": "Found 6 emit(s)"
       },
       {
         "test_id": "SOL-007",
@@ -181,7 +188,7 @@
         "description": "noReentrant applied to payable functions",
         "passed": true,
         "severity": "critical",
-        "detail": "Payable functions: ['pay']"
+        "detail": "Payable functions: ['depositPayment']"
       },
       {
         "test_id": "SEC-004",
@@ -288,36 +295,12 @@
         "detail": ""
       },
       {
-        "test_id": "COV-040",
-        "category": "coverage",
-        "description": "Dispute function present",
-        "passed": true,
-        "severity": "critical",
-        "detail": ""
-      },
-      {
-        "test_id": "COV-041",
-        "category": "coverage",
-        "description": "Arbitrator address state variable",
-        "passed": true,
-        "severity": "major",
-        "detail": ""
-      },
-      {
-        "test_id": "COV-042",
-        "category": "coverage",
-        "description": "Dispute event emitted",
-        "passed": true,
-        "severity": "major",
-        "detail": ""
-      },
-      {
         "test_id": "LEG-010",
         "category": "legal",
         "description": "Contract name reflects eContract title",
         "passed": true,
         "severity": "minor",
-        "detail": "Title words found: 5/5: ['execution', 'version', 'agreement', 'plan', 'merger']"
+        "detail": "Title words found: 3/3: ['agreement', 'plan', 'merger']"
       },
       {
         "test_id": "LEG-030",
@@ -325,7 +308,15 @@
         "description": "Effective/start date encoded (as timestamp or comment)",
         "passed": true,
         "severity": "info",
-        "detail": "Effective date: May 10, 2021"
+        "detail": "Effective date: July 12, 2020"
+      },
+      {
+        "test_id": "LEG-050-5",
+        "category": "legal",
+        "description": "Penalty deadline (30 days) encoded",
+        "passed": false,
+        "severity": "minor",
+        "detail": "Penalty clause: Additional Conditions Precedent to the Company's Obligations. The obligation of the Company to effect the Merger and otherwise consummate the transactions contemplated by this Agreement is subject to the satisfaction or waiver, at or prior to the Closing, of each of the following conditions:"
       },
       {
         "test_id": "LEG-070",
@@ -352,54 +343,46 @@
         "detail": ""
       },
       {
-        "test_id": "CLS-PAYMEN",
-        "category": "coverage",
-        "description": "Clause 'Preamble' [payment] encoded on-chain",
-        "passed": true,
-        "severity": "major",
-        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay|depositPayment']"
-      },
-      {
         "test_id": "CLS-GENERA",
         "category": "coverage",
-        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [general] encoded on-chain",
+        "description": "Clause 'Preamble' [general] encoded on-chain",
         "passed": true,
         "severity": "minor",
         "detail": "Keywords matched 2/2: ['contract\\\\s+\\\\w+', 'constructor']"
       },
       {
-        "test_id": "CLS-EXPIRY",
-        "category": "coverage",
-        "description": "Clause 'R E C I T A L S' [expiry] encoded on-chain",
-        "passed": true,
-        "severity": "minor",
-        "detail": "Keywords matched 2/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
-      },
-      {
         "test_id": "CLS-OBLIGA",
         "category": "coverage",
-        "description": "Clause 'ARTICLE III REPRESENTATIONS AND WARRANTIES OF THE COMPANY' [obligation] encoded on-chain",
+        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [obligation] encoded on-chain",
         "passed": true,
         "severity": "minor",
         "detail": "Keywords matched 2/3: ['_state\\\\s*=', 'Completed|Active|Created', 'deliver|Deliver']"
       },
       {
-        "test_id": "CLS-PENALT",
+        "test_id": "CLS-EXPIRY",
         "category": "coverage",
-        "description": "Clause 'Compliance with Laws and Court Orders; Governmental Authorizations.' [penalty] encoded on-chain",
+        "description": "Clause 'AGREEMENT AND PLAN OF MERGER' [expiry] encoded on-chain",
         "passed": true,
-        "severity": "major",
-        "detail": "Keywords matched 1/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
+        "severity": "minor",
+        "detail": "Keywords matched 2/3: ['block\\\\.timestamp', '_deadline|deadline', 'expired|Expired']"
       },
       {
-        "test_id": "CLS-DISPUT",
+        "test_id": "CLS-PAYMEN",
         "category": "coverage",
-        "description": "Clause 'Litigation.' [dispute] encoded on-chain",
+        "description": "Clause 'Options; Stock Based Awards. (a)    Effective as of the Effective Time, each Company Option that is outstanding and unexercised, whether vested or unvested, immediately prior to the Effective Time (each, an \"Outstanding Company Option\") shall cease to represent a right to acquire shares of Company Common Stock and shall be converted automatically into a Parent Option on the same terms and conditions (including applicable vesting, exercise and expiration provisions) as applied to such Outstanding Company Option immediately prior to the Effective Time, except that: (i) the number of shares of Parent Common Stock subject to each assumed Outstanding Company Option shall be determined by multiplying: (A) the number of shares of Company Common Stock subject to such Outstanding Company Option immediately prior to the Effective Time; by (B) the Exchange Ratio, and rounding such product down to the nearest whole share; and (ii) the per share exercise price for the shares of Parent Common Stock issuable upon exercise of each assumed Outstanding Company Option shall be determined by dividing: (A) the per share exercise price for the shares of Company Common Stock otherwise purchasable pursuant to such Outstanding Company Option immediately prior to the Effective Time; by (B) the Exchange Ratio, and rounding such quotient up to the nearest whole cent (it being understood that any Outstanding Company Option that is so converted into a Parent Option in accordance with this Section 1.7(a) shall, from and after the Effective Time, be subject to the applicable Change in Control Plan).   3' [payment] encoded on-chain",
         "passed": true,
         "severity": "major",
-        "detail": "Keywords matched 2/3: ['disput|Disput', 'arbitrat|Arbitrat', 'escrow|Escrow']"
+        "detail": "Keywords matched 2/3: ['payable', 'transfer|\\\\.call\\\\{', 'milestone|payment|pay|depositPayment']"
+      },
+      {
+        "test_id": "CLS-PENALT",
+        "category": "coverage",
+        "description": "Clause 'Non-Contravention; Consents. (a)    The execution and delivery of this Agreement by the Company and, assuming receipt of the Required Company Stockholder Vote, the consummation by the Company of the Merger will not: (i) cause a violation of any of the provisions of the Organizational Documents of the Company or any Company Subsidiary; (ii) assuming the consents and filings referred to in Section 2.19(b) are made and obtained, conflict with or violate any applicable Legal Requirements; or (iii) subject to Section 4.7, result in any loss, limitation or impairment of any right of the Company or any Company Subsidiary to own or use any assets, result in any violation of or default (with or without notice or lapse of time, or both) under, or give rise to a right of termination, cancellation, first offer, first refusal, modification or acceleration of any obligation or to the loss of a benefit under any contract, loan, indebtedness, mortgage, lease, agreement, instrument, permit, franchise, right or license binding upon the Company or any Company Subsidiary or by which any of their respective properties, rights or assets are bound or subject, or result in the creation of any Liens of any kind (other than Company Permitted Encumbrances) upon any of the properties, rights or assets of the Company or any Company Subsidiary, except, in the cases of clauses \"(ii)\" and \"(iii),\" as would not, individually or in the aggregate, reasonably be expected to constitute or result in a Company Material Adverse Effect or to prevent, materially delay or materially impair the ability of the Company to perform its obligations under this Agreement or to consummate the Merger.' [penalty] encoded on-chain",
+        "passed": true,
+        "severity": "major",
+        "detail": "Keywords matched 2/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
       }
     ]
   },
-  "test_summary": "Validation: 46/46 passed | Accuracy: 100.0% | Critical failures: 0"
+  "test_summary": "Validation: 42/43 passed | Accuracy: 98.8% | Critical failures: 0"
 }

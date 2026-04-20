@@ -1,5 +1,5 @@
-Properties inserted : 30
-Properties violation detected (dynamic) : 10
-Properties violation detected (unique) : 10
-Total atomic condition : 15
-Condition Coverage % : 33%
+Properties inserted : 14
+Properties violation detected (dynamic) : 13
+Properties violation detected (unique) : 13
+Total atomic condition : 7
+Condition Coverage % : 92%
