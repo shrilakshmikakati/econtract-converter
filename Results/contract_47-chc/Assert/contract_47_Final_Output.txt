@@ -1,0 +1,74 @@
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:35:2:
+   |
+35 | 	assert(!(!(msg.sender == _partyA) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:36:2:
+   |
+36 | 	assert(!(!(!(msg.sender == _partyA) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:37:2:
+   |
+37 | 	assert(!( !(msg.sender == _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:38:2:
+   |
+38 | 	assert(!(!( !(msg.sender == _partyB))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:43:2:
+   |
+43 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:44:2:
+   |
+44 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:56:2:
+   |
+56 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:71:2:
+   |
+71 | 	assert(!(!(!(state == ContractState.Active) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:72:2:
+   |
+72 | 	assert(!( !(state == ContractState.Completed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:81:2:
+   |
+81 | 	assert(!(!(state != ContractState.Active)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:95:2:
+   |
+95 | 	assert(!(!(!(state == ContractState.Active) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_47-chc/Assert/contract_47.sol:96:2:
+   |
+96 | 	assert(!( !(state == ContractState.Completed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: 3 verification condition(s) could not be proved. Enable the model checker option "show unproved" to see all of them. Consider choosing a specific contract to be verified in order to reduce the solving problems. Consider increasing the timeout per query.
+

@@ -1,6 +1,6 @@
 {
-  "conversion_timestamp": "2026-04-17T06:43:31Z",
-  "elapsed_seconds": 407.26,
+  "conversion_timestamp": "2026-04-20T07:55:04Z",
+  "elapsed_seconds": 148.34,
   "source_file": "/home/archikiess/Projects/econtract-converter/contract_67.txt",
   "output_file": "/home/archikiess/Projects/econtract-converter/Results/contract_67/contract_67.sol",
   "contract_title": "Article Iv.",
@@ -79,7 +79,7 @@
         "description": "At least 3 events declared",
         "passed": true,
         "severity": "major",
-        "detail": "Found 7 event(s)"
+        "detail": "Found 5 event(s)"
       },
       {
         "test_id": "SOL-006",
@@ -87,7 +87,7 @@
         "description": "Events are emitted (emit statements)",
         "passed": true,
         "severity": "major",
-        "detail": "Found 6 emit(s)"
+        "detail": "Found 4 emit(s)"
       },
       {
         "test_id": "SOL-007",
@@ -143,7 +143,7 @@
         "description": "NatSpec (@notice) present on functions (\u22658)",
         "passed": true,
         "severity": "minor",
-        "detail": "Found 9 @notice comments"
+        "detail": "Found 8 @notice comments"
       },
       {
         "test_id": "SOL-014",
@@ -191,7 +191,7 @@
         "description": "noReentrant applied to payable functions",
         "passed": true,
         "severity": "critical",
-        "detail": "Payable functions: ['depositPayment']"
+        "detail": "Payable functions: ['pay']"
       },
       {
         "test_id": "SEC-004",
@@ -343,7 +343,7 @@
         "description": "Clause 'Corporate Authorization.   (a)               The Company has all requisite corporate power and authority to execute and deliver this Agreement, to perform its obligations hereunder and, subject to the receipt of the Required Company Stockholder Approval, to consummate the Transactions. The execution, delivery and performance by the Company of this Agreement have been duly and validly authorized by all necessary corporate action on the part of the Company by the Company Board, subject to the receipt of the Required Company Stockholder Approval, and no other corporate proceedings on the part of the Company are necessary to authorize the execution, delivery and performance of this Agreement by the Company or for the Company to consummate the Transactions (other than, with respect to the Merger, the filing of the Certificate of Merger with the Delaware Secretary of State). This Agreement has been duly and validly executed and delivered by the Company, and assuming the due authorization, execution and delivery by Parent and Merger Sub of this Agreement, this Agreement constitutes the legal, valid and binding obligation of the Company, enforceable against the Company in accordance with its terms, except that (i) such enforcement may be subject to applicable bankruptcy, insolvency, fraudulent conveyance, reorganization, moratorium and similar Laws, now or hereafter in effect, affecting creditors' rights and remedies generally and (ii) the remedies of specific performance and injunctive and other forms of equitable relief may be subject to equitable defenses and to the discretion of the court before which any Proceeding therefor may be brought (collectively, the \"Enforceability Exceptions\").   (b)               The Company Board has duly adopted resolutions (i) determining that this Agreement and the Transactions are fair to, advisable and in the best interests of the Company and the Company's stockholders, (ii) approving this Agreement and the Transactions, (iii) directing that this Agreement be submitted to the stockholders of the Company for their adoption and (iv) subject to Section 6.02, recommending adoption of this Agreement by the stockholders of the Company (such recommendation, the \"Company Board Recommendation\").   Section 4.03       Governmental Authorization. The execution, delivery and performance by the Company of this Agreement and the consummation by the Company of the Transactions require no consent, approval or authorization of, or filing with, any Governmental Authority other than (a) the filing of the Certificate of Merger with the Delaware Secretary of State and appropriate documents with the relevant authorities of other states in which the Company or any of its Subsidiaries is qualified to do business, (b) compliance with and filings or notifications under any applicable requirements of the HSR Act and any other applicable U.S. or foreign competition, antitrust, merger control or investment Laws (together with the HSR Act, \"Antitrust Laws\"), (c) compliance with any applicable requirements of the Securities Act, the Exchange Act and any other applicable U.S. state or federal securities, takeover or \"blue sky\" Laws, (d) such other items required solely by reason of the participation of Parent or Merger Sub in the Transactions, (e) compliance with any applicable rules of Nasdaq and (f) where failure to take any such actions or filings would not reasonably be expected to have a Company Material Adverse Effect.   Section 4.04       Non-Contravention. Except as set forth on Section 4.04 of the Company Disclosure Letter, the execution, delivery and performance by the Company of this Agreement and the consummation by the Company of the Transactions do not and will not (a) contravene, conflict with or result in any violation or breach of any provision of the certificate of incorporation or bylaws (or comparable organizational documents) of the Company or any of its Subsidiaries, (b) assuming that the consents, approvals, authorizations and filings referred to in Section 4.03 have been obtained or made, any applicable waiting periods referred to therein have terminated or expired and any condition precedent to any such consent has been satisfied or waived, and subject to obtaining the Required Company Stockholder Approval, contravene, conflict with or result in a violation or breach of any Applicable Law, or (c) assuming that the consents, approvals, authorizations and filings referred to in Section 4.03 have been obtained or made, any applicable waiting periods referred to therein have terminated or expired and any condition precedent to any such consent has been satisfied or waived, and subject to obtaining the Required Company Stockholder Approval, require any consent by any Person under, constitute a default, or an event that, with or without notice or lapse of time or both, would constitute a default, under, or cause or permit the termination, cancellation, acceleration or other change of any right or obligation or the loss of any benefit to which the Company or any of its Subsidiaries is entitled under any Company Material Contract, except in the case of clauses (b) and (c) above, any such violation, breach, default, right, termination, amendment, acceleration, cancellation, or loss that would not, individually or in the aggregate, reasonably be expected to have a Company Material Adverse Effect.' [penalty] encoded on-chain",
         "passed": true,
         "severity": "major",
-        "detail": "Keywords matched 2/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
+        "detail": "Keywords matched 1/3: ['penalt|deduct|fine', 'delay|overdue', '_penaltyRate|penaltyWei|penaltyRateBps']"
       }
     ]
   },

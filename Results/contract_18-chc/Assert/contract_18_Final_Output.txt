@@ -1,0 +1,89 @@
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1618185600, startDate = 1618185600, GOVERNING_LAW = [0x61, 0x6e, 0x64], _arbitrator = 0x0, _locked = false, _partyA = 0x1e28, _deadline = 0, _partyB = 0x0, _state = 0, _amount = 0
+
+Transaction trace:
+AgreementAndPlanOfMerger.constructor(0x1e28, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1618185600, startDate = 1618185600, GOVERNING_LAW = [0x61, 0x6e, 0x64], _arbitrator = 0x0, _locked = false, _partyA = 0x1e28, _deadline = 0, _partyB = 0x0, _state = 0, _amount = 0
+AgreementAndPlanOfMerger.acknowledgeNonDisclosure(){ block.timestamp: 5853, msg.sender: 0x1e27 }
+  --> Results/contract_18-chc/Assert/contract_18.sol:29:2:
+   |
+29 | 	assert(!(!(msg.sender == _partyA) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_18-chc/Assert/contract_18.sol:30:2:
+   |
+30 | 	assert(!(!(!(msg.sender == _partyA) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_18-chc/Assert/contract_18.sol:31:2:
+   |
+31 | 	assert(!( !(msg.sender == _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1618185600, startDate = 1618185600, GOVERNING_LAW = [0x61, 0x6e, 0x64], _arbitrator = 0x0, _locked = false, _partyA = 0x0, _deadline = 0, _partyB = 0x1e28, _state = 0, _amount = 0
+
+Transaction trace:
+AgreementAndPlanOfMerger.constructor(0x0, 0x1e28, 0x0)
+State: EFFECTIVE_DATE = 1618185600, startDate = 1618185600, GOVERNING_LAW = [0x61, 0x6e, 0x64], _arbitrator = 0x0, _locked = false, _partyA = 0x0, _deadline = 0, _partyB = 0x1e28, _state = 0, _amount = 0
+AgreementAndPlanOfMerger.acknowledgeNonDisclosure(){ block.timestamp: 38, msg.sender: 0x1e28 }
+  --> Results/contract_18-chc/Assert/contract_18.sol:32:2:
+   |
+32 | 	assert(!(!( !(msg.sender == _partyB))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_18-chc/Assert/contract_18.sol:37:2:
+   |
+37 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1618185600, startDate = 1618185600, GOVERNING_LAW = [0x61, 0x6e, 0x64], _arbitrator = 0x0, _locked = false, _partyA = 0x0, _deadline = 0, _partyB = 0x0, _state = 0, _amount = 0
+
+Transaction trace:
+AgreementAndPlanOfMerger.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1618185600, startDate = 1618185600, GOVERNING_LAW = [0x61, 0x6e, 0x64], _arbitrator = 0x0, _locked = false, _partyA = 0x0, _deadline = 0, _partyB = 0x0, _state = 0, _amount = 0
+AgreementAndPlanOfMerger.dispute(){ block.timestamp: 38, msg.sender: 0x0 }
+  --> Results/contract_18-chc/Assert/contract_18.sol:38:2:
+   |
+38 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_18-chc/Assert/contract_18.sol:56:2:
+   |
+56 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_18-chc/Assert/contract_18.sol:75:2:
+   |
+75 | 	assert(!(!( _state == ContractState.Terminated)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_18-chc/Assert/contract_18.sol:99:2:
+   |
+99 | 	assert(!(block.timestamp <= _deadline));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_18-chc/Assert/contract_18.sol:132:2:
+    |
+132 | 	assert(!(msg.value != _amount));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_18-chc/Assert/contract_18.sol:133:2:
+    |
+133 | 	assert(!(!(msg.value != _amount)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: 19 verification condition(s) could not be proved. Enable the model checker option "show unproved" to see all of them. Consider choosing a specific contract to be verified in order to reduce the solving problems. Consider increasing the timeout per query.
+

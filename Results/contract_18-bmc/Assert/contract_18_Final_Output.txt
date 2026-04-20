@@ -1,0 +1,647 @@
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:35:2:
+   |
+35 | 	assert(!(!(msg.sender == _partyA) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 10450
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:64:50:
+   |
+64 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:36:2:
+   |
+36 | 	assert(!(!(!(msg.sender == _partyA) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 14680
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:64:50:
+   |
+64 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:37:2:
+   |
+37 | 	assert(!( !(msg.sender == _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 2446
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:64:50:
+   |
+64 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:38:2:
+   |
+38 | 	assert(!(!( !(msg.sender == _partyB))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 6879
+  _partyB = 6878
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:64:50:
+   |
+64 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:43:2:
+   |
+43 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 12279
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:69:33:
+   |
+69 |     function dispute() external onlyArbitrator {
+   |                                 ^^^^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:44:2:
+   |
+44 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 1102
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:69:33:
+   |
+69 |     function dispute() external onlyArbitrator {
+   |                                 ^^^^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:70:2:
+   |
+70 | 	assert(!(_state == ContractState.Disputed));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 3
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:71:2:
+   |
+71 | 	assert(!(!(_state == ContractState.Disputed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:73:2:
+   |
+73 | 	assert(!(_state == ContractState.Completed ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 2
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:74:2:
+   |
+74 | 	assert(!(!(_state == ContractState.Completed )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:75:2:
+   |
+75 | 	assert(!( _state == ContractState.Terminated));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 4
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:76:2:
+   |
+76 | 	assert(!(!( _state == ContractState.Terminated)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:84:2:
+   |
+84 | 	assert(!(_state != ContractState.Active));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 3449
+  _partyB = 3447
+  _state = 2
+  ok = false
+  startDate = 0
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:85:2:
+   |
+85 | 	assert(!(!(_state != ContractState.Active)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 5929
+  _partyB = 5927
+  _state = 1
+  ok = false
+  startDate = 0
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:89:2:
+   |
+89 | 	assert(!(!ok));
+   | 	^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  address(this).balance = 22279
+  ok = false
+  startDate = 0
+  this = 31674
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:90:2:
+   |
+90 | 	assert(!(!(!ok)));
+   | 	^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  address(this).balance = 1733
+  ok = true
+  startDate = 0
+  this = 19455
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:56:2:
+   |
+56 | 	assert(!(_locked));
+   | 	^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  daysLate = 0
+  penaltyRateBps = 0
+  penaltyWei = 0
+  principal = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:97:9:
+   |
+97 |         noReentrant
+   |         ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_18-bmc/Assert/contract_18.sol:57:2:
+   |
+57 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = false
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  daysLate = 0
+  penaltyRateBps = 0
+  penaltyWei = 0
+  principal = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_18-bmc/Assert/contract_18.sol:97:9:
+   |
+97 |         noReentrant
+   |         ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:100:2:
+    |
+100 | 	assert(!(_state != ContractState.Disputed));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  daysLate = 0
+  penaltyRateBps = 0
+  penaltyWei = 0
+  principal = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:101:2:
+    |
+101 | 	assert(!(!(_state != ContractState.Disputed)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 3
+  daysLate = 0
+  penaltyRateBps = 0
+  penaltyWei = 0
+  principal = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:104:2:
+    |
+104 | 	assert(!(block.timestamp <= _deadline));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 3
+  daysLate = 0
+  penaltyRateBps = 0
+  penaltyWei = 0
+  principal = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:105:2:
+    |
+105 | 	assert(!(!(block.timestamp <= _deadline)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 20693
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 3
+  daysLate = 0
+  penaltyRateBps = 0
+  penaltyWei = 0
+  principal = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:113:2:
+    |
+113 | 	assert(!(_state == ContractState.Terminated));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 29508
+  _partyB = 29510
+  _state = 4
+  ok = false
+  startDate = 0
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:114:2:
+    |
+114 | 	assert(!(!(_state == ContractState.Terminated)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 14077
+  _partyB = 14079
+  _state = 0
+  ok = false
+  startDate = 0
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:118:2:
+    |
+118 | 	assert(!(address(this).balance > 0));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 18563
+  _partyB = 18561
+  _state = 4
+  address(this).balance = 18871
+  ok = false
+  startDate = 0
+  this = 11101
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:119:2:
+    |
+119 | 	assert(!(!(address(this).balance > 0)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 5580
+  _partyB = 5580
+  _state = 4
+  address(this).balance = 0
+  ok = false
+  startDate = 0
+  this = 2199
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:122:2:
+    |
+122 | 	assert(!(!ok));
+    | 	^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  address(this).balance = 8093
+  ok = false
+  startDate = 0
+  this = 8516
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:123:2:
+    |
+123 | 	assert(!(!(!ok)));
+    | 	^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  address(this).balance = 15933
+  ok = true
+  startDate = 0
+  this = 17411
+
+Note: Callstack:
+Note: 
+Note that external function calls are not inlined, even if the source code of the function is available. This is due to the possibility that the actual called contract has the same ABI but implements the function differently.
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:147:2:
+    |
+147 | 	assert(!(msg.value == 0));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_18-bmc/Assert/contract_18.sol:148:2:
+    |
+148 | 	assert(!(!(msg.value == 0)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  _state = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+

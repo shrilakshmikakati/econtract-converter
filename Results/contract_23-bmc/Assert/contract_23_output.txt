@@ -1,0 +1,17 @@
+Warning: This declaration shadows an existing declaration.
+  --> Results/contract_23-bmc/Assert/contract_23.sol:46:17:
+   |
+46 |     constructor(address _arbitrator, address payable partyA_, address payable partyB_) {
+   |                 ^^^^^^^^^^^^^^^^^^^
+Note: The shadowed declaration is here:
+  --> Results/contract_23-bmc/Assert/contract_23.sol:22:5:
+   |
+22 |     address private _arbitrator;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_23-bmc/Assert/contract_23.sol:110:59:
+    |
+110 |         if (msg.value == 0) revert InsufficientPayment(0, _amount);
+    |                                                           ^^^^^^^
+

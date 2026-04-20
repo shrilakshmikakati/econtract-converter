@@ -1,313 +1,212 @@
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:34:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:30:2:
    |
-34 | 	assert(!(!(msg.sender == _partyA) ));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+30 | 	assert(!(!(msg.sender == address(this)) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
   EFFECTIVE_DATE = 0
   _arbitrator = 0
-  _confidentialityAcknowledged = false
   _deadline = 0
-  _partyA = 10450
-  _partyB = 0
-  startDate = 0
-
-Note: Callstack:
-Note:
-  --> Results/contract_67-bmc/Assert/contract_67.sol:62:50:
-   |
-62 |     function acknowledgeNonDisclosure() external onlyParties {
-   |                                                  ^^^^^^^^^^^
-Note:
-
-CheckPoint
-Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:35:2:
-   |
-35 | 	assert(!(!(!(msg.sender == _partyA) )));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Note: Counterexample:
-  EFFECTIVE_DATE = 0
-  _arbitrator = 0
-  _confidentialityAcknowledged = false
-  _deadline = 0
-  _partyA = 14680
-  _partyB = 0
-  startDate = 0
-
-Note: Callstack:
-Note:
-  --> Results/contract_67-bmc/Assert/contract_67.sol:62:50:
-   |
-62 |     function acknowledgeNonDisclosure() external onlyParties {
-   |                                                  ^^^^^^^^^^^
-Note:
-
-CheckPoint
-Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:36:2:
-   |
-36 | 	assert(!( !(msg.sender == _partyB)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Note: Counterexample:
-  EFFECTIVE_DATE = 0
-  _arbitrator = 0
-  _confidentialityAcknowledged = false
-  _deadline = 0
-  _partyA = 2446
-  _partyB = 0
-  startDate = 0
-
-Note: Callstack:
-Note:
-  --> Results/contract_67-bmc/Assert/contract_67.sol:62:50:
-   |
-62 |     function acknowledgeNonDisclosure() external onlyParties {
-   |                                                  ^^^^^^^^^^^
-Note:
-
-CheckPoint
-Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:37:2:
-   |
-37 | 	assert(!(!( !(msg.sender == _partyB))));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Note: Counterexample:
-  EFFECTIVE_DATE = 0
-  _arbitrator = 0
-  _confidentialityAcknowledged = false
-  _deadline = 0
-  _partyA = 6879
-  _partyB = 6878
-  startDate = 0
-
-Note: Callstack:
-Note:
-  --> Results/contract_67-bmc/Assert/contract_67.sol:62:50:
-   |
-62 |     function acknowledgeNonDisclosure() external onlyParties {
-   |                                                  ^^^^^^^^^^^
-Note:
-
-CheckPoint
-Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:42:2:
-   |
-42 | 	assert(!(msg.sender != _arbitrator));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Note: Counterexample:
-  EFFECTIVE_DATE = 0
-  _arbitrator = 12279
-  _deadline = 0
-  _partyA = 0
-  _partyB = 0
   startDate = 0
   state = 0
+  this = 10450
 
 Note: Callstack:
 Note:
-  --> Results/contract_67-bmc/Assert/contract_67.sol:67:33:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:57:33:
    |
-67 |     function dispute() external onlyArbitrator {
-   |                                 ^^^^^^^^^^^^^^
+57 |     function dispute() external onlyParties {
+   |                                 ^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:43:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:31:2:
    |
-43 | 	assert(!(!(msg.sender != _arbitrator)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+31 | 	assert(!(!(!(msg.sender == address(this)) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
   EFFECTIVE_DATE = 0
-  _arbitrator = 1102
+  _arbitrator = 0
   _deadline = 0
-  _partyA = 0
-  _partyB = 0
   startDate = 0
   state = 0
+  this = 14680
 
 Note: Callstack:
 Note:
-  --> Results/contract_67-bmc/Assert/contract_67.sol:67:33:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:57:33:
    |
-67 |     function dispute() external onlyArbitrator {
-   |                                 ^^^^^^^^^^^^^^
+57 |     function dispute() external onlyParties {
+   |                                 ^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:70:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:32:2:
    |
-70 | 	assert(!(!(!(state == ContractState.Active) )));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+32 | 	assert(!( !(msg.sender == _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
-   = 1
   EFFECTIVE_DATE = 0
   _arbitrator = 0
   _deadline = 0
-  _partyA = 0
-  _partyB = 0
   startDate = 0
-  state = 1
+  state = 0
+  this = 2446
 
 Note: Callstack:
+Note:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:57:33:
+   |
+57 |     function dispute() external onlyParties {
+   |                                 ^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:71:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:33:2:
    |
-71 | 	assert(!( !(state == ContractState.Completed)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Note: Counterexample:
-   = 1
-  EFFECTIVE_DATE = 0
-  _arbitrator = 0
-  _deadline = 0
-  _partyA = 0
-  _partyB = 0
-  startDate = 0
-  state = 1
-
-Note: Callstack:
-Note:
-
-CheckPoint
-Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:80:2:
-   |
-80 | 	assert(!(!(state != ContractState.Active)));
+33 | 	assert(!(!( !(msg.sender == _arbitrator))));
    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
-   = 1
   EFFECTIVE_DATE = 0
-  _arbitrator = 0
+  _arbitrator = 6878
   _deadline = 0
-  _partyA = 1768
-  _partyB = 0
   startDate = 0
-  state = 1
+  state = 0
+  this = 6879
 
 Note: Callstack:
+Note:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:57:33:
+   |
+57 |     function dispute() external onlyParties {
+   |                                 ^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:94:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:38:2:
    |
-94 | 	assert(!(!(!(state == ContractState.Active) )));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+38 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
-   = 1
   EFFECTIVE_DATE = 0
-  _arbitrator = 0
+  _arbitrator = 624
   _deadline = 0
-  _partyA = 29178
-  _partyB = 29178
+  penalty = 0
+  principal = 0
+  rate = 0
   startDate = 0
-  state = 1
+  state = 0
 
 Note: Callstack:
+Note:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:67:73:
+   |
+67 |     function calculatePenalty(uint256 principal, uint256 rate) external onlyArbitrator {
+   |                                                                         ^^^^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:95:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:39:2:
    |
-95 | 	assert(!( !(state == ContractState.Completed)));
-   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+39 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
-   = 1
   EFFECTIVE_DATE = 0
-  _arbitrator = 0
+  _arbitrator = 24323
   _deadline = 0
-  _partyA = 10065
-  _partyB = 0
+  penalty = 0
+  principal = 0
+  rate = 0
   startDate = 0
-  state = 1
+  state = 0
 
 Note: Callstack:
+Note:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:67:73:
+   |
+67 |     function calculatePenalty(uint256 principal, uint256 rate) external onlyArbitrator {
+   |                                                                         ^^^^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:54:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:49:2:
    |
-54 | 	assert(!(_locked));
+49 | 	assert(!(_locked));
    | 	^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
   EFFECTIVE_DATE = 0
   _arbitrator = 0
   _deadline = 0
   _locked = true
-  _partyA = 0
-  _partyB = 0
   startDate = 0
+  state = 0
 
 Note: Callstack:
 Note:
-   --> Results/contract_67-bmc/Assert/contract_67.sol:109:48:
-    |
-109 |     function depositPayment() external payable noReentrant {
-    |                                                ^^^^^^^^^^^
+  --> Results/contract_67-bmc/Assert/contract_67.sol:81:37:
+   |
+81 |     function pay() external payable noReentrant {
+   |                                     ^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-  --> Results/contract_67-bmc/Assert/contract_67.sol:55:2:
+  --> Results/contract_67-bmc/Assert/contract_67.sol:50:2:
    |
-55 | 	assert(!(!(_locked)));
+50 | 	assert(!(!(_locked)));
    | 	^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
   EFFECTIVE_DATE = 0
   _arbitrator = 0
   _deadline = 0
   _locked = false
-  _partyA = 0
-  _partyB = 0
   startDate = 0
+  state = 0
 
 Note: Callstack:
 Note:
-   --> Results/contract_67-bmc/Assert/contract_67.sol:109:48:
-    |
-109 |     function depositPayment() external payable noReentrant {
-    |                                                ^^^^^^^^^^^
+  --> Results/contract_67-bmc/Assert/contract_67.sol:81:37:
+   |
+81 |     function pay() external payable noReentrant {
+   |                                     ^^^^^^^^^^^
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-   --> Results/contract_67-bmc/Assert/contract_67.sol:110:2:
-    |
-110 | 	assert(!(msg.value == 0));
-    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> Results/contract_67-bmc/Assert/contract_67.sol:82:2:
+   |
+82 | 	assert(!(msg.value == 0));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
   EFFECTIVE_DATE = 0
   _arbitrator = 0
   _deadline = 0
   _locked = true
-  _partyA = 0
-  _partyB = 0
   startDate = 0
+  state = 0
 
 Note: Callstack:
 Note:
 
 CheckPoint
 Warning: BMC: Assertion violation happens here.
-   --> Results/contract_67-bmc/Assert/contract_67.sol:111:2:
-    |
-111 | 	assert(!(!(msg.value == 0)));
-    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> Results/contract_67-bmc/Assert/contract_67.sol:83:2:
+   |
+83 | 	assert(!(!(msg.value == 0)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Note: Counterexample:
   EFFECTIVE_DATE = 0
   _arbitrator = 0
   _deadline = 0
   _locked = true
-  _partyA = 0
-  _partyB = 0
   startDate = 0
+  state = 0
 
 Note: Callstack:
 Note:

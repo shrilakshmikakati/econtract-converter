@@ -1,0 +1,342 @@
+Warning: Unused local variable.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:64:9:
+   |
+64 |         bool _confidentialityAcknowledged;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: Function state mutability can be restricted to pure
+   --> Results/contract_47-bmc/Assert/contract_47.sol:102:5:
+    |
+102 |     function getContractState() public view returns (ContractState) {
+    |     ^ (Relevant source part starts here and spans across multiple lines).
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:35:2:
+   |
+35 | 	assert(!(!(msg.sender == _partyA) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _confidentialityAcknowledged = false
+  _deadline = 0
+  _partyA = 10450
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_47-bmc/Assert/contract_47.sol:63:50:
+   |
+63 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:36:2:
+   |
+36 | 	assert(!(!(!(msg.sender == _partyA) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _confidentialityAcknowledged = false
+  _deadline = 0
+  _partyA = 14680
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_47-bmc/Assert/contract_47.sol:63:50:
+   |
+63 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:37:2:
+   |
+37 | 	assert(!( !(msg.sender == _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _confidentialityAcknowledged = false
+  _deadline = 0
+  _partyA = 2446
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_47-bmc/Assert/contract_47.sol:63:50:
+   |
+63 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:38:2:
+   |
+38 | 	assert(!(!( !(msg.sender == _partyB))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _confidentialityAcknowledged = false
+  _deadline = 0
+  _partyA = 6879
+  _partyB = 6878
+  startDate = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_47-bmc/Assert/contract_47.sol:63:50:
+   |
+63 |     function acknowledgeNonDisclosure() external onlyParties {
+   |                                                  ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:43:2:
+   |
+43 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 12279
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+  state = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_47-bmc/Assert/contract_47.sol:68:33:
+   |
+68 |     function dispute() external onlyArbitrator {
+   |                                 ^^^^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:44:2:
+   |
+44 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 1102
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+  state = 0
+
+Note: Callstack:
+Note:
+  --> Results/contract_47-bmc/Assert/contract_47.sol:68:33:
+   |
+68 |     function dispute() external onlyArbitrator {
+   |                                 ^^^^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:71:2:
+   |
+71 | 	assert(!(!(!(state == ContractState.Active) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+   = 1
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+  state = 1
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:72:2:
+   |
+72 | 	assert(!( !(state == ContractState.Completed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+   = 1
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+  state = 1
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:80:2:
+   |
+80 | 	assert(!(state != ContractState.Created));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+   = 1
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 1768
+  startDate = 0
+  state = 1
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:95:2:
+   |
+95 | 	assert(!(!(!(state == ContractState.Active) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+   = 1
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 29178
+  _partyB = 29178
+  startDate = 0
+  state = 1
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:96:2:
+   |
+96 | 	assert(!( !(state == ContractState.Completed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+   = 1
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _partyA = 0
+  _partyB = 10065
+  startDate = 0
+  state = 1
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:55:2:
+   |
+55 | 	assert(!(_locked));
+   | 	^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+   --> Results/contract_47-bmc/Assert/contract_47.sol:109:48:
+    |
+109 |     function depositPayment() external payable noReentrant {
+    |                                                ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+  --> Results/contract_47-bmc/Assert/contract_47.sol:56:2:
+   |
+56 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = false
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+   --> Results/contract_47-bmc/Assert/contract_47.sol:109:48:
+    |
+109 |     function depositPayment() external payable noReentrant {
+    |                                                ^^^^^^^^^^^
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_47-bmc/Assert/contract_47.sol:110:2:
+    |
+110 | 	assert(!(msg.value == 0));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+
+CheckPoint
+Warning: BMC: Assertion violation happens here.
+   --> Results/contract_47-bmc/Assert/contract_47.sol:111:2:
+    |
+111 | 	assert(!(!(msg.value == 0)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: Counterexample:
+  EFFECTIVE_DATE = 0
+  TERM_DAYS = 0
+  _arbitrator = 0
+  _deadline = 0
+  _locked = true
+  _partyA = 0
+  _partyB = 0
+  startDate = 0
+
+Note: Callstack:
+Note:
+

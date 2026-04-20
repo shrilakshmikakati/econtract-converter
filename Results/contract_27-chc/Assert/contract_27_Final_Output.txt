@@ -1,0 +1,258 @@
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x52f7, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x52f7, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x52f7, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.acknowledgeNonDisclosure(){ block.timestamp: 38, msg.sender: 0x52f6 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:35:2:
+   |
+35 | 	assert(!(!(msg.sender == _partyA) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.acknowledgeNonDisclosure(){ block.timestamp: 10450, msg.sender: 0x0 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:36:2:
+   |
+36 | 	assert(!(!(!(msg.sender == _partyA) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x52f8, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x52f8, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x52f8, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.acknowledgeNonDisclosure(){ block.timestamp: 38, msg.sender: 0x52f7 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:37:2:
+   |
+37 | 	assert(!( !(msg.sender == _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x01, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x01, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x01, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.acknowledgeNonDisclosure(){ block.timestamp: 38, msg.sender: 0x0 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:38:2:
+   |
+38 | 	assert(!(!( !(msg.sender == _partyB))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x52f7, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x52f7, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x52f7, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.dispute(){ block.timestamp: 38, msg.sender: 0x52f6 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:43:2:
+   |
+43 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.dispute(){ block.timestamp: 10450, msg.sender: 0x0 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:44:2:
+   |
+44 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.depositPayment(){ msg.sender: 0x26, msg.value: 1 }
+  --> Results/contract_27-chc/Assert/contract_27.sol:56:2:
+   |
+56 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+state = 1
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.dispute(){ block.timestamp: 10450, msg.sender: 0x0 }
+    PascalCaseContract.getContractState() -- internal call
+  --> Results/contract_27-chc/Assert/contract_27.sol:71:2:
+   |
+71 | 	assert(!(!(!(state == ContractState.Active) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+state = 1
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.dispute(){ block.timestamp: 10450, msg.sender: 0x0 }
+    PascalCaseContract.getContractState() -- internal call
+  --> Results/contract_27-chc/Assert/contract_27.sol:72:2:
+   |
+72 | 	assert(!( !(state == ContractState.Completed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x01, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+state = 1
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x01, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x01, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.acknowledgeDelivery(){ block.timestamp: 38, msg.sender: 0x0 }
+    PascalCaseContract.getContractState() -- internal call
+  --> Results/contract_27-chc/Assert/contract_27.sol:81:2:
+   |
+81 | 	assert(!(!(state != ContractState.Active)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+principal = 0
+rate = 0
+penalty = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.calculatePenalty(0, 0)
+  --> Results/contract_27-chc/Assert/contract_27.sol:88:2:
+   |
+88 | 	assert(!(!(principal > 0) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+principal = 1
+rate = 0
+penalty = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.calculatePenalty(1, 0)
+  --> Results/contract_27-chc/Assert/contract_27.sol:89:2:
+   |
+89 | 	assert(!(!(!(principal > 0) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+principal = 0
+rate = 0
+penalty = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.calculatePenalty(0, 0)
+  --> Results/contract_27-chc/Assert/contract_27.sol:90:2:
+   |
+90 | 	assert(!( !(rate > 0)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+principal = 0
+rate = 1
+penalty = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.calculatePenalty(0, 1)
+  --> Results/contract_27-chc/Assert/contract_27.sol:91:2:
+   |
+91 | 	assert(!(!( !(rate > 0))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x52f7, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+state = 1
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x52f7, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x52f7, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.terminate(){ block.timestamp: 38, msg.sender: 0x52f7 }
+    PascalCaseContract.getContractState() -- internal call
+   --> Results/contract_27-chc/Assert/contract_27.sol:100:2:
+    |
+100 | 	assert(!(!(!(state == ContractState.Active) )));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0xffffffffffffffffffffffffffffffffffffad09, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+state = 1
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0xffffffffffffffffffffffffffffffffffffad09, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0xffffffffffffffffffffffffffffffffffffad09, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.terminate(){ block.timestamp: 38, msg.sender: 0xffffffffffffffffffffffffffffffffffffad09 }
+    PascalCaseContract.getContractState() -- internal call
+   --> Results/contract_27-chc/Assert/contract_27.sol:101:2:
+    |
+101 | 	assert(!( !(state == ContractState.Completed)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = true, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.depositPayment(){ msg.sender: 0x26, msg.value: 0 }
+   --> Results/contract_27-chc/Assert/contract_27.sol:116:2:
+    |
+116 | 	assert(!(msg.value == 0));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+Counterexample:
+EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = true, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+
+Transaction trace:
+PascalCaseContract.constructor(0x0, 0x0, 0x0)
+State: EFFECTIVE_DATE = 1616630400, startDate = 1616630400, GOVERNING_LAW = [0x61, 0x6e, 0x64], _locked = false, _arbitrator = 0x0, _partyA = 0x0, _partyB = 0x0, TERM_DAYS = 45, _deadline = 0
+PascalCaseContract.depositPayment(){ msg.sender: 0x26, msg.value: 1 }
+   --> Results/contract_27-chc/Assert/contract_27.sol:117:2:
+    |
+117 | 	assert(!(!(msg.value == 0)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: 1 verification condition(s) could not be proved. Enable the model checker option "show unproved" to see all of them. Consider choosing a specific contract to be verified in order to reduce the solving problems. Consider increasing the timeout per query.
+

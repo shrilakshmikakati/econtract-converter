@@ -1,0 +1,62 @@
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:29:2:
+   |
+29 | 	assert(!(!(msg.sender == _partyA) ));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:30:2:
+   |
+30 | 	assert(!(!(!(msg.sender == _partyA) )));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:31:2:
+   |
+31 | 	assert(!( !(msg.sender == _partyB)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:32:2:
+   |
+32 | 	assert(!(!( !(msg.sender == _partyB))));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:37:2:
+   |
+37 | 	assert(!(msg.sender != _arbitrator));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:38:2:
+   |
+38 | 	assert(!(!(msg.sender != _arbitrator)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:57:2:
+   |
+57 | 	assert(!(!(_locked)));
+   | 	^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+  --> Results/contract_45-chc/Assert/contract_45.sol:71:2:
+   |
+71 | 	assert(!(!(state == ContractState.Disputed)));
+   | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_45-chc/Assert/contract_45.sol:132:2:
+    |
+132 | 	assert(!(msg.value == 0));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: Assertion violation happens here.
+   --> Results/contract_45-chc/Assert/contract_45.sol:133:2:
+    |
+133 | 	assert(!(!(msg.value == 0)));
+    | 	^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Warning: CHC: 20 verification condition(s) could not be proved. Enable the model checker option "show unproved" to see all of them. Consider choosing a specific contract to be verified in order to reduce the solving problems. Consider increasing the timeout per query.
+

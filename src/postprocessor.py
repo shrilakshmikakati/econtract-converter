@@ -22,18 +22,64 @@ from typing import Optional
 from extractor import ContractDocument
 
 
+def _blank_function_bodies(code: str) -> str:
+    """Return a copy of *code* with every function/modifier/constructor body
+    replaced by spaces (newlines preserved so line numbers stay valid).
+
+    This prevents ``_get_declared_state_vars`` from matching local variable
+    declarations inside function bodies as if they were contract-scope state
+    variables.  Without this guard, a local ``uint256 _amount = ...;`` inside
+    a function causes ``_has_amount_var`` to be ``True`` even when no state
+    variable named ``_amount`` exists, leading to an injected guard:
+
+        if (msg.value != _amount) revert InsufficientPayment(...);
+
+    in *other* functions where ``_amount`` is not in scope — exactly the
+    ``Error: Undeclared identifier`` seen in the BMC/CHC assert output.
+    """
+    body_blanked = list(code)
+    head_pat = re.compile(
+        r'\b(?:function\s+\w+|modifier\s+\w+|constructor)\s*\([^)]*\)[^{]*\{',
+        re.DOTALL,
+    )
+    for hm in head_pat.finditer(code):
+        body_start = hm.end()
+        depth, j = 1, body_start
+        while j < len(code) and depth:
+            if code[j] == '{':
+                depth += 1
+            elif code[j] == '}':
+                depth -= 1
+            j += 1
+        # Blank every character inside the body except newlines so that
+        # multiline regexes anchored at ^ still see the correct line structure.
+        for k in range(body_start, j - 1):
+            if body_blanked[k] != '\n':
+                body_blanked[k] = ' '
+    return ''.join(body_blanked)
+
+
 def _get_declared_state_vars(code: str) -> set[str]:
-    """Return names of all declared state variables (and enum/event/error/modifier/function names)."""
+    """Return names of contract-scope state variables only.
+
+    Uses ``_blank_function_bodies`` to exclude local variable declarations
+    inside function/modifier/constructor bodies before applying the regex.
+    This prevents false positives where a local ``uint256 _amount = ...``
+    inside a function is mistaken for a state variable, which would cause
+    ``_fix_msg_value_validation`` to inject ``if (msg.value != _amount)``
+    guards into functions where ``_amount`` is not in scope.
+    """
+    blanked = _blank_function_bodies(code)
     names: set[str] = set()
     for m in re.finditer(
         r"^\s*(?:address|uint\d*|int\d*|bool|bytes\d*|string|mapping|enum\s+\w+)\s+"
         r"(?:payable\s+)?(?:private|public|internal)?\s*(?:immutable\s+|constant\s+)?(\w+)\s*[;=]",
-        code, re.MULTILINE,
+        blanked, re.MULTILINE,
     ):
         names.add(m.group(1))
     for m in re.finditer(
         r"^\s*(?:ContractState|\w+State)\s+(?:public|private|internal)?\s*(\w+)\s*[;=]",
-        code, re.MULTILINE,
+        blanked, re.MULTILINE,
     ):
         names.add(m.group(1))
     return names
@@ -244,6 +290,7 @@ def _fix_local_var_visibility(code: str) -> str:
 
 
 def _fix_contractstate_type(code: str) -> str:
+    # Fix state-variable declarations typed as uint256 instead of ContractState
     code = re.sub(
         r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*=\s*ContractState\.)',
         r'ContractState\1\2', code,
@@ -251,6 +298,27 @@ def _fix_contractstate_type(code: str) -> str:
     code = re.sub(
         r'\buint256\b(\s+(?:public|private|internal)?\s+)(contractState\s*;)',
         r'ContractState\1\2', code,
+    )
+    # Fix local variable assignments where getContractState() (or similarly
+    # named getters) returns uint8 but is assigned directly to a ContractState
+    # variable.  solc does not allow implicit uint8 → enum conversion; the fix
+    # wraps the RHS in an explicit cast: ContractState(getContractState()).
+    #
+    # Pattern: `ContractState <varname> = getContractState();`
+    # or:      `ContractState <varname> = getState();`
+    # where the RHS is a bare call (no cast already present).
+    def _cast_getter(m: re.Match) -> str:
+        varname = m.group(1)
+        call = m.group(2)
+        # Already wrapped in a cast — leave untouched
+        if call.startswith('ContractState('):
+            return m.group(0)
+        return f'ContractState {varname} = ContractState({call})'
+
+    code = re.sub(
+        r'ContractState\s+(\w+)\s*=\s*((?:get\w+)\s*\([^)]*\))',
+        _cast_getter,
+        code,
     )
     return code
 
@@ -680,16 +748,49 @@ def _fix_malformed_if_revert(code: str) -> str:
         tail = f' {suffix}' if suffix and not suffix.startswith('//') else ''
         return f'{indent}if ({compound}) revert {err_name}();{tail}'
 
+    # Phase 1: fix single-line malformed if-reverts
+    # Sub-case A: revert is INSIDE the if(...) parens — handled by _parse_line
+    # Sub-case B: revert is OUTSIDE the if(...) parens:
+    #   `if (cond) revert Err() && other;`  → `if (cond || other) revert Err();`
+    _outside_pat = re.compile(
+        r'^([ \t]*)if\s*\(([^)]*)\)\s+revert\s+(\w+)\s*\([^)]*\)\s*(?:&&|\|\|)\s*([^;]+);',
+    )
     lines = code.splitlines(keepends=True)
     out = []
     for line in lines:
-        if bad_sentinel.search(line) or bad_sentinel2.search(line):
-            fixed = _parse_line(line.rstrip('\n\r'))
+        ending = '\n' if line.endswith('\n') else ''
+        stripped = line.rstrip('\n\r')
+        om = _outside_pat.match(stripped)
+        if om:
+            indent, cond, err_name, extra = om.group(1), om.group(2).strip(), om.group(3), om.group(4).strip()
+            # Combine condition with the trailing expression as an OR
+            compound = f'{cond} || {extra}' if cond else extra
+            line = f'{indent}if ({compound}) revert {err_name}();{ending}'
+        elif bad_sentinel.search(stripped) or bad_sentinel2.search(stripped):
+            fixed = _parse_line(stripped)
             if fixed is not None:
-                ending = '\n' if line.endswith('\n') else ''
                 line = fixed + ending
         out.append(line)
-    return ''.join(out)
+    code = ''.join(out)
+
+    # Phase 2: fix multi-line malformed if-reverts that _parse_line cannot handle
+    # (they span multiple source lines so the single-line pass misses them).
+    # Pattern: `if (\n  ...\n  revert Err() && ...`  — collapse to one line,
+    # run through _parse_line, then re-emit.
+    multiline_pat = re.compile(
+        r'([ \t]*)if\s*\(([^)]*\n[^)]*revert\s+\w+\s*\([^)]*\)[^)]*)\)',
+        re.DOTALL,
+    )
+    def _fix_multiline(m: re.Match) -> str:
+        indent = m.group(1)
+        # Flatten the inner expression to a single line for _parse_line
+        flat = ' '.join(m.group(2).split())
+        synthetic = f'{indent}if ({flat})'
+        fixed = _parse_line(synthetic)
+        return fixed if fixed is not None else m.group(0)
+
+    new_code = multiline_pat.sub(_fix_multiline, code)
+    return new_code
 
 
 def _fix_constructor_params(code: str) -> str:
@@ -755,6 +856,21 @@ def _fix_constructor_params(code: str) -> str:
                 kept.append(param)
                 continue
             base = _base(name)
+
+            # SHADOW FIX: if the param name *exactly* matches a declared state
+            # variable (e.g. param `_arbitrator` shadows state var `_arbitrator`),
+            # rename the param to its bare-plus-trailing-underscore form so the
+            # shadow warning is eliminated.  Record the rename in `dropped` so
+            # all body references are updated consistently.
+            if name in state_vars:
+                bare = name.lstrip('_')
+                new_name = bare + '_'   # e.g. _arbitrator → arbitrator_
+                dropped[name] = new_name
+                tokens[-1] = new_name
+                param = ' '.join(tokens)
+                name = new_name
+                base = _base(name)
+
             if base in seen_bases:
                 # Duplicate — record the mapping so we can fix body references
                 dropped[name] = seen_bases[base]
@@ -764,8 +880,7 @@ def _fix_constructor_params(code: str) -> str:
                 # state variable that already has a leading-underscore form in
                 # the param list, also drop it.
                 sv_form = '_' + name          # e.g. arbitrator → _arbitrator
-                sv_form2 = name + '_'         # e.g. arbitrator → arbitrator_
-                if (sv_form in state_vars and sv_form in [_base_to_canon for _base_to_canon in seen_bases.values()]):
+                if (sv_form in state_vars and sv_form in list(seen_bases.values())):
                     dropped[name] = sv_form
                     # Remove from seen_bases so we don't keep a bare name when
                     # the underscore form was already added.
@@ -929,6 +1044,88 @@ def _fix_duplicate_state_vars(code: str) -> str:
     return "".join(result)
 
 
+def _fix_duplicate_functions(code: str) -> str:
+    """Remove duplicate function definitions with the same name and parameter types.
+
+    solc error: 'Function with same name and parameter types defined twice.'
+
+    Strategy (depth-aware, single-pass):
+      1. Walk the contract body finding every `function <name>(<params>)` header.
+      2. Normalise the parameter *type* signature (strip names, whitespace, data-
+         location keywords so `address payable _a` == `address payable`).
+      3. Build a key of (function_name, normalised_type_sig).
+      4. On the second occurrence of the same key, excise the entire function body
+         (including its closing brace) from the source.
+      5. Preserve the first occurrence unconditionally.
+
+    Only top-level contract functions are targeted; modifiers, constructors, and
+    receive/fallback are left untouched.
+    """
+    _LOC_KW = re.compile(r'\b(memory|calldata|storage)\b\s*')
+    _NAME_RE = re.compile(r'\b[a-zA-Z_]\w*\s*$')  # trailing identifier = param name
+
+    def _normalise_params(params_str: str) -> str:
+        """Return a comma-joined string of bare types, e.g. 'uint256,address'."""
+        if not params_str.strip():
+            return ''
+        parts = []
+        for raw in params_str.split(','):
+            tokens = raw.strip().split()
+            # Drop data-location keywords
+            tokens = [t for t in tokens if t not in ('memory', 'calldata', 'storage', 'payable', 'indexed')]
+            if not tokens:
+                continue
+            # The last token is the parameter name (if more than one token remains).
+            # Keep only the type tokens.
+            if len(tokens) > 1:
+                tokens = tokens[:-1]
+            parts.append(' '.join(tokens).lower())
+        return ','.join(parts)
+
+    # Match function header up to and including the opening `{`
+    fn_head_pat = re.compile(
+        r'(?m)^([ \t]*)function\s+(\w+)\s*\(([^)]*)\)([^{]*)\{',
+        re.DOTALL,
+    )
+
+    seen: set[tuple[str, str]] = set()
+    # Collect ranges to remove: list of (start_char, end_char) in the original string
+    remove_ranges: list[tuple[int, int]] = []
+
+    for m in fn_head_pat.finditer(code):
+        fn_name = m.group(2)
+        params_raw = m.group(3)
+        key = (fn_name, _normalise_params(params_raw))
+
+        if key in seen:
+            # Duplicate — find the full body with brace-depth tracking
+            body_start = m.end()  # right after the `{`
+            depth, j = 1, body_start
+            while j < len(code) and depth:
+                if code[j] == '{':
+                    depth += 1
+                elif code[j] == '}':
+                    depth -= 1
+                j += 1
+            # j now points one past the closing `}`.
+            # Also remove the leading newline before the function if present.
+            start = m.start()
+            if start > 0 and code[start - 1] == '\n':
+                start -= 1
+            remove_ranges.append((start, j))
+        else:
+            seen.add(key)
+
+    if not remove_ranges:
+        return code
+
+    # Apply removals in reverse order so offsets stay valid
+    for start, end in sorted(remove_ranges, reverse=True):
+        code = code[:start] + code[end:]
+
+    return code
+
+
 def _fix_onlyX_modifiers(code: str) -> str:
     existing = re.findall(r"modifier\s+only\w+\s*\(", code)
     if len(existing) >= 2:
@@ -1010,31 +1207,52 @@ def _fix_start_date(code: str) -> str:
 
 
 def _fix_confidentiality_acknowledgement(code: str, doc: ContractDocument) -> str:
-    if not any(c.clause_type == "confidential" for c in doc.clauses):
+    has_confidential_clause = any(c.clause_type == "confidential" for c in doc.clauses)
+    # Even when there is no confidential clause, the LLM sometimes emits
+    # `_confidentialityAcknowledged` references (hallucinated).  We must still
+    # ensure the state-level declaration exists so solc can resolve them; the
+    # rest of this function handles that injection path regardless of doc.clauses.
+    if not has_confidential_clause and '_confidentialityAcknowledged' not in code:
         return code
     if re.search(r"confidential|nda|nonDisclos|non_disclos", code, re.I):
-        # Still need to fix any `bool private _confidentialityAcknowledged;`
-        # that the LLM emitted *inside a function body* — local vars cannot
-        # have a visibility specifier.  Remove it and hoist it to state scope
-        # if not already declared there.
+        # Check whether a proper state-level declaration already exists.
+        # Heuristic: ≤4 leading spaces means it's directly inside the contract
+        # block (not inside a function/modifier body).
+        state_decl_pat = re.compile(
+            r'^(?:[ ]{0,4}|\t)bool\s+(?:private\s+)?_confidentialityAcknowledged\s*;',
+            re.MULTILINE,
+        )
+        has_state_decl = bool(state_decl_pat.search(code))
+
+        # Fix any `bool private _confidentialityAcknowledged;` that the LLM
+        # emitted *inside a function body* — local vars cannot have a visibility
+        # specifier.  Strip the keyword; if no state-level declaration exists
+        # we will inject one below.
         local_pat = re.compile(
             r'^([ \t]*)bool\s+private\s+_confidentialityAcknowledged\s*;[^\n]*\n',
             re.MULTILINE,
         )
-        # Check whether it is already a proper state-level declaration
-        # (i.e. not indented inside a function body – heuristic: only one
-        # level of indentation, directly inside the contract block).
-        state_decl_pat = re.compile(
-            r'^(?:[ ]{0,4}|\t)bool\s+private\s+_confidentialityAcknowledged\s*;',
-            re.MULTILINE,
-        )
         for m in list(local_pat.finditer(code))[::-1]:
-            # If it looks like a state-level line (≤4 leading spaces) keep it
             if state_decl_pat.match(m.group(0)):
+                # Already a state-level line — keep it as-is
+                has_state_decl = True
                 continue
-            # Otherwise it's inside a function body – remove the visibility kw
+            # Inside a function body: strip the visibility keyword
             fixed = m.group(1) + "bool _confidentialityAcknowledged;\n"
             code = code[:m.start()] + fixed + code[m.end():]
+
+        # If the variable is referenced but never declared at state scope,
+        # inject the state-level declaration now so solc can resolve it.
+        if not has_state_decl and '_confidentialityAcknowledged' in code:
+            state_var = "    bool private _confidentialityAcknowledged;\n"
+            locked_m = re.search(r"(bool\s+private\s+_locked\s*;)", code)
+            if locked_m:
+                code = code[:locked_m.end()] + "\n" + state_var + code[locked_m.end():]
+            else:
+                m2 = re.search(r"(\bcontract\s+\w+[^{]*\{[^\n]*\n)", code)
+                if m2:
+                    code = code[:m2.end()] + state_var + code[m2.end():]
+
         return code
     state_var = "    bool private _confidentialityAcknowledged;\n"
     event_decl = "    event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);\n"
@@ -1083,6 +1301,52 @@ _KNOWN_EVENT_SIGS: dict[str, str] = {
     "PenaltyCalculated":    "event PenaltyCalculated(uint256 penaltyWei);",
     "StateChanged":         "event StateChanged(uint8 fromState, uint8 toState);",
 }
+
+
+def _fix_duplicate_event_params(code: str) -> str:
+    """Remove duplicate parameter names inside event declarations.
+
+    The LLM occasionally emits events like:
+        event ContractCreated(address indexed _arbitrator, address indexed _arbitrator, uint256 amount);
+    where the same parameter name appears more than once.  solc rejects this
+    with "Identifier already declared".
+
+    Strategy: for each ``event Name(...)`` declaration, parse the parameter
+    list into (type, name) pairs, drop any subsequent occurrence of a name
+    already seen, and re-emit the deduplicated declaration.  The *first*
+    occurrence of each name is always kept; duplicates are removed entirely
+    (not renamed) because event parameters are positional — renaming would
+    still cause a compile error if the name matches another param.
+    """
+    def _dedup_event(m: re.Match) -> str:
+        name = m.group(1)
+        params_raw = m.group(2)
+        if not params_raw.strip():
+            return m.group(0)
+        raw_params = [p.strip() for p in params_raw.split(',') if p.strip()]
+        seen_names: set[str] = set()
+        kept: list[str] = []
+        for param in raw_params:
+            tokens = param.split()
+            if not tokens:
+                continue
+            # The parameter name is the last token; keywords like 'indexed',
+            # 'memory', 'calldata' are not parameter names.
+            param_name = tokens[-1]
+            if param_name in ('indexed', 'memory', 'calldata', 'storage'):
+                # Degenerate — no name token; keep as-is
+                kept.append(param)
+                continue
+            if param_name in seen_names:
+                # Duplicate name — drop this parameter entirely
+                continue
+            seen_names.add(param_name)
+            kept.append(param)
+        if len(kept) == len(raw_params):
+            return m.group(0)  # nothing changed
+        return f"event {name}({', '.join(kept)});"
+
+    return re.sub(r'\bevent\s+(\w+)\s*\(([^)]*)\)\s*;', _dedup_event, code)
 
 
 def _fix_missing_custom_errors(code: str) -> str:
@@ -1234,7 +1498,18 @@ def _fix_payable_and_receive(code: str) -> str:
 
 
 def _fix_expiry_deadline(code: str, deadline_days: int = 0) -> str:
-    if re.search(r'\b_deadline\b|\bdeadlineAt\b', code) or re.search(r'block\.timestamp\s*\+', code):
+    # Only skip injection when `_deadline` / `deadline_` / `deadlineAt` is
+    # already a *state-level* variable (contract scope).  The old guard fired
+    # on any occurrence of `_deadline` in the source — including its use as a
+    # *function parameter* name (e.g. `calculatePenalty(uint256 _deadline)`).
+    # That caused the state-var injection to be skipped entirely, leaving every
+    # other function body with an undeclared `_deadline` reference once the
+    # assert injector synthesised probes that copied the expression out of the
+    # one function where the parameter was in scope.
+    _deadline_state_vars = _get_declared_state_vars(code)
+    _has_deadline_state_var = ('_deadline' in _deadline_state_vars or
+                               'deadline_' in _deadline_state_vars)
+    if _has_deadline_state_var or re.search(r'\bdeadlineAt\b', code) or re.search(r'block\.timestamp\s*\+', code):
         return code
     # Inject TERM_DAYS constant so the literal day count is always present in the
     # contract, satisfying COV-022 checks that look for the raw number.
@@ -1279,6 +1554,30 @@ def _fix_expiry_deadline(code: str, deadline_days: int = 0) -> str:
     return code
 
 
+def _contract_ranges(code: str) -> list[tuple[int, int]]:
+    """Return a list of (start, end) character ranges for each top-level contract body.
+
+    'start' is the position of the opening '{' of the contract, and 'end' is the
+    position one past its matching '}'.  Used by _fix_msg_value_validation to
+    determine which state variables are in scope for a given function — a
+    multi-contract file must not let _amount from contract A influence guards
+    injected into contract B.
+    """
+    ranges: list[tuple[int, int]] = []
+    contract_pat = re.compile(r'\bcontract\s+\w+[^{]*\{', re.DOTALL)
+    for cm in contract_pat.finditer(code):
+        brace_open = cm.end() - 1  # position of the '{'
+        depth, j = 1, cm.end()
+        while j < len(code) and depth:
+            if code[j] == '{':
+                depth += 1
+            elif code[j] == '}':
+                depth -= 1
+            j += 1
+        ranges.append((brace_open, j))
+    return ranges
+
+
 def _fix_msg_value_validation(code: str) -> str:
     """
     Inject `if (msg.value == 0) revert …;` as the FIRST statement inside every
@@ -1306,6 +1605,14 @@ def _fix_msg_value_validation(code: str) -> str:
        The second invocation of _fix_msg_value_in_nonpayable is now removed
        from apply_all_fixes(); see that function for the ordering fix.
 
+    3. [NEW] The old code evaluated `_has_amount_var` once for the ENTIRE file.
+       In multi-contract files (e.g. a helper contract alongside the main one),
+       `_amount` declared in contract A was incorrectly treated as in-scope for
+       payable functions in contract B, causing the assertionInjector to report
+       "Undeclared identifier" on the synthesised assert probes.  The fix
+       evaluates `_has_amount_var` per-function using only the contract block
+       that contains the function.
+
     Fix: locate every payable function with a depth-aware scanner rather than
     relying on a regex to span the signature+brace in one shot.
     """
@@ -1332,29 +1639,24 @@ def _fix_msg_value_validation(code: str) -> str:
     else:
         err_call = "revert InsufficientPayment();"
 
-    # When a state variable `_amount` exists it represents the agreed payment
-    # amount for this contract.  Use `msg.value != _amount` as the guard
-    # condition instead of `msg.value == 0` so that:
-    #   (a) the semantic check is correct (exact payment required, not just
-    #       any non-zero value), and
-    #   (b) the assert probes that assert.cpp will later synthesise from this
-    #       `if`-condition (`assert(msg.value != _amount)` /
-    #       `assert(!(msg.value != _amount))`) reference `_amount` which is
-    #       always in scope as a state variable — preventing "Undeclared
-    #       identifier" errors that occur when the probe references a name that
-    #       was corrupted/renamed by an earlier postprocessor pass.
-    _has_amount_var = '_amount' in _get_declared_state_vars(code)
-    if _has_amount_var:
-        if _insuf_arity == 2:
-            err_call_amount = "revert InsufficientPayment(msg.value, _amount);"
-        elif _insuf_arity == 1:
-            err_call_amount = "revert InsufficientPayment(msg.value);"
-        else:
-            err_call_amount = "revert InsufficientPayment();"
+    # Pre-compute per-contract state variables so we can test _amount scope
+    # per-function rather than globally.  This prevents variables from a helper
+    # contract being treated as in-scope inside the main contract's functions.
+    contract_blocks = _contract_ranges(code)
+
+    def _amount_in_scope(fn_pos: int) -> bool:
+        """Return True iff _amount is a state variable in the contract that
+        contains the character position fn_pos."""
+        for c_start, c_end in contract_blocks:
+            if c_start <= fn_pos < c_end:
+                contract_src = code[c_start:c_end]
+                return '_amount' in _get_declared_state_vars(contract_src)
+        # Fallback: not inside any recognised contract block — be conservative
+        return False
 
     # We'll rebuild the code string with targeted replacements (reverse order
     # so offsets stay valid).
-    replacements: list[tuple[int, int, str]] = []  # (body_start, insert_pos, text)
+    replacements: list[tuple[int, int, str]] = []  # (body_start, text)
 
     for m in fn_head_pat.finditer(code):
         full_sig = m.group(0)  # everything up to and including the opening `{`
@@ -1392,11 +1694,23 @@ def _fix_msg_value_validation(code: str) -> str:
             _indent_step = 4
         inner_indent = ' ' * (fn_indent + _indent_step * 2)  # contract indent + 2 levels
 
-        if _has_amount_var:
+        # Check _amount scope for THIS function's contract block only.
+        # Bug fix: the old global _has_amount_var check caused guards referencing
+        # _amount to be injected into functions of contracts that don't declare it
+        # (e.g. when a helper contract in the same file declares _amount).
+        # The assertionInjector then synthesised probes copying the _amount reference
+        # into the function scope where it is undeclared → "Undeclared identifier".
+        if _amount_in_scope(m.start()):
+            if _insuf_arity == 2:
+                err_call_fn = "revert InsufficientPayment(msg.value, _amount);"
+            elif _insuf_arity == 1:
+                err_call_fn = "revert InsufficientPayment(msg.value);"
+            else:
+                err_call_fn = "revert InsufficientPayment();"
             # Exact-payment guard: revert if the sent value doesn't match the
             # agreed _amount.  This also keeps the condition (`msg.value != _amount`)
             # well-formed for the assert probes that assert.cpp will inject.
-            inject = f"\n{inner_indent}if (msg.value != _amount) {err_call_amount}"
+            inject = f"\n{inner_indent}if (msg.value != _amount) {err_call_fn}"
         else:
             # Fallback: just require a non-zero payment.
             inject = f"\n{inner_indent}if (msg.value == 0) {err_call}"
@@ -1408,6 +1722,88 @@ def _fix_msg_value_validation(code: str) -> str:
         code = code[:pos] + text + code[pos:]
 
     return code
+
+
+def _fix_undeclared_revert_args(code: str) -> str:
+    """Replace undeclared identifiers used as arguments inside revert calls.
+
+    The LLM occasionally emits things like:
+        revert InsufficientPayment(0, _amount);
+        revert DeadlinePassed(_deadline, block.timestamp);
+    where one of the arguments is a state variable that was never declared
+    (e.g. `_amount` when no `uint256 private _amount` exists).
+
+    Strategy:
+      Find every `revert ErrorName(args...)` call.
+      For each argument that is a bare identifier (no operators, no dots),
+      check whether it is a declared state variable or Solidity builtin.
+      If not, replace it with `0` (a safe numeric sentinel that type-checks
+      for any uint/int parameter without introducing a new undeclared name).
+
+    Only bare simple identifiers are replaced — compound expressions like
+    `block.timestamp` or `msg.value` are left intact.
+    """
+    declared = _get_declared_state_vars(code)
+    _BUILTINS = {
+        'msg', 'block', 'tx', 'address', 'this', 'type', 'abi',
+        'true', 'false', 'now',
+    }
+
+    def _is_safe(token: str) -> bool:
+        tok = token.strip()
+        if not tok:
+            return True
+        # Numeric literal
+        if re.fullmatch(r'[\d_]+(?:e\d+)?|0x[0-9a-fA-F]+', tok):
+            return True
+        # String literal
+        if tok.startswith('"') or tok.startswith("'"):
+            return True
+        # Compound expression (contains dot, operators, parens, spaces)
+        if any(c in tok for c in '.()[]+-*/%&|^<>=! '):
+            return True
+        # Declared state var or builtin
+        if tok in declared or tok in _BUILTINS or tok.startswith('_') and tok in declared:
+            return True
+        return False
+
+    def _sanitise_args(args_str: str) -> str:
+        """Replace undeclared bare identifiers with 0, preserving commas."""
+        parts = []
+        depth, current, i = 0, [], 0
+        tokens_out = []
+        for ch in args_str:
+            if ch in '([{':
+                depth += 1; current.append(ch)
+            elif ch in ')]}':
+                depth -= 1; current.append(ch)
+            elif ch == ',' and depth == 0:
+                arg = ''.join(current).strip()
+                tokens_out.append('0' if not _is_safe(arg) else arg)
+                current = []
+            else:
+                current.append(ch)
+        # Last arg
+        arg = ''.join(current).strip()
+        tokens_out.append('0' if not _is_safe(arg) else arg)
+        return ', '.join(tokens_out)
+
+    result, i, n = [], 0, len(code)
+    revert_pat = re.compile(r'\brevert\s+(\w+)\s*\(')
+    while i < n:
+        m = revert_pat.search(code, i)
+        if not m:
+            result.append(code[i:])
+            break
+        result.append(code[i:m.start()])
+        err_name = m.group(1)
+        paren_open = m.end() - 1  # index of '('
+        balanced = _extract_balanced(code, paren_open)
+        args_inner = balanced[1:-1]
+        fixed_args = _sanitise_args(args_inner)
+        result.append(f'revert {err_name}({fixed_args})')
+        i = m.start() + len(f'revert {err_name}') + len(balanced)
+    return ''.join(result)
 
 
 def _fix_msg_value_in_nonpayable(code: str) -> str:
@@ -1666,16 +2062,18 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
                _fix_missing_noReentrant, _fix_payable_noReentrant,
                _fix_missing_custom_errors, _fix_missing_events,
                _fix_wrong_event_arg_counts,
+               _fix_duplicate_event_params,
                # Phase 4: inject missing constructs
                _fix_party_declarations, _fix_state_var_declaration,
                _fix_onlyPartyA_modifier, _fix_locked_declaration, _fix_duplicate_state_vars,
-               _fix_onlyX_modifiers):
+               _fix_duplicate_functions, _fix_onlyX_modifiers):
         code = fn(code)
     code = _fix_governing_law_constant(code, doc)
     code = _fix_start_date(code)
     code = _fix_confidentiality_acknowledgement(code, doc)
     for fn in (_fix_undeclared_identifiers_in_modifiers,
                _fix_require_to_custom_errors,
+               _fix_undeclared_revert_args,
                _fix_malformed_if_revert, _fix_malformed_if_revert, _fix_malformed_if_revert,
                _fix_malformed_if_revert, _fix_malformed_if_revert,  # extra passes for deeply-nested variants
                _fix_address_payable_cast,
@@ -1695,6 +2093,7 @@ def apply_all_fixes(raw_code: str, doc: ContractDocument) -> str:
                _fix_payable_noReentrant,
                _fix_natspec_comments,
                _fix_wrong_event_arg_counts,
+               _fix_duplicate_event_params,
                _fix_injector_safe_conditions, _fix_trailing_whitespace):
         code = fn(code)
     # _fix_expiry_deadline needs the deadline_days from doc for COV-022 compliance

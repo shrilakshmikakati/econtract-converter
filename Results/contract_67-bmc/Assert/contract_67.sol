@@ -2,7 +2,7 @@ pragma solidity >=0.4.24;
 // SPDX-License-Identifier: MIT
 // =================================================================
 // Contract : Article Iv.
-// Generated: 2026-04-17 06:43:31 UTC
+// Generated: 2026-04-20 07:55:04 UTC
 // Tool     : eContract -> Smart Contract Converter v2.0
 // Solidity : 0.8.16
 // WARNING  : Review thoroughly before deployment on mainnet.
@@ -20,22 +20,18 @@ contract MergerAgreement {
     string public constant GOVERNING_LAW = "General";
     bool private _locked;
     address private _arbitrator;
+    uint256 private _deadline; // contract expiry (unix timestamp)
     event DisputeRaised(address indexed party, uint256 timestamp);
-    event NonDisclosureAcknowledged(address indexed party, uint256 timestamp);
-    event Completed(address indexed caller, uint256 value);
+    event ContractCompleted(address indexed party, uint256 timestamp);
+    event PenaltyCalculated(uint256 amount, uint256 timestamp);
     event ContractTerminated(address indexed initiator, uint256 timestamp);
     event PaymentReceived(address indexed from, uint256 amount);
-    event PenaltyCalculated(uint256 penaltyWei);
-    event Terminated(address indexed caller, uint256 value);
-    address payable private _partyA;
-    address payable private _partyB;
-    uint256 private _deadline; // contract expiry (unix timestamp)
     modifier onlyParties() {
-	assert(!(!(msg.sender == _partyA) ));
-	assert(!(!(!(msg.sender == _partyA) )));
-	assert(!( !(msg.sender == _partyB)));
-	assert(!(!( !(msg.sender == _partyB))));
-        if (!(msg.sender == _partyA) && !(msg.sender == _partyB)) revert Unauthorized();
+	assert(!(!(msg.sender == address(this)) ));
+	assert(!(!(!(msg.sender == address(this)) )));
+	assert(!( !(msg.sender == _arbitrator)));
+	assert(!(!( !(msg.sender == _arbitrator))));
+        if (!(msg.sender == address(this)) && !(msg.sender == _arbitrator)) revert Unauthorized();
         _;
     }
     modifier onlyArbitrator() {
@@ -44,11 +40,10 @@ contract MergerAgreement {
         if (msg.sender != _arbitrator) revert Unauthorized();
         _;
     }
-    constructor(address payable partyA_, address payable partyB_, address arbitrator_) {
-        _partyA = partyA_;
-        _partyB = partyB_;
+    constructor(address arbitrator) {
         startDate = EFFECTIVE_DATE;
-        _arbitrator = payable(arbitrator_);
+        _arbitrator = arbitrator;
+        state = ContractState.Created;
     }
     modifier noReentrant() {
 	assert(!(_locked));
@@ -58,60 +53,45 @@ contract MergerAgreement {
         _;
         _locked = false;
     }
-    /// @notice Execute acknowledgeNonDisclosure operation.
-    function acknowledgeNonDisclosure() external onlyParties {
-        bool _confidentialityAcknowledged;
-        emit NonDisclosureAcknowledged(msg.sender, block.timestamp);
-    }
     /// @notice Execute dispute operation.
-    function dispute() external onlyArbitrator {
-        ContractState state = getContractState();
-	assert(!(!(state == ContractState.Active) ));
-	assert(!(!(!(state == ContractState.Active) )));
-	assert(!( !(state == ContractState.Completed)));
-	assert(!(!( !(state == ContractState.Completed))));
-        if (!(state == ContractState.Active) && !(state == ContractState.Completed)) revert Unauthorized();
+    function dispute() external onlyParties {
         emit DisputeRaised(msg.sender, block.timestamp);
+        setState(ContractState.Disputed);
     }
     /// @notice Execute acknowledgeDelivery operation.
     function acknowledgeDelivery() external onlyParties {
-        ContractState state = getContractState();
-	assert(!(state != ContractState.Active));
-	assert(!(!(state != ContractState.Active)));
-        if (state != ContractState.Active) revert Unauthorized();
-        // Logic to confirm delivery
-        emit Completed(msg.sender, block.timestamp);
+        setState(ContractState.Completed);
+        emit ContractCompleted(msg.sender, block.timestamp);
     }
     /// @notice Execute calculatePenalty operation.
     function calculatePenalty(uint256 principal, uint256 rate) external onlyArbitrator {
         uint256 penalty = principal * rate / 100;
-        emit PenaltyCalculated(penalty);
+        emit PenaltyCalculated(penalty, block.timestamp);
+        // Logic to handle the penalty
     }
     /// @notice Execute terminate operation.
     function terminate() external onlyParties {
-        ContractState state = getContractState();
-	assert(!(!(state == ContractState.Active) ));
-	assert(!(!(!(state == ContractState.Active) )));
-	assert(!( !(state == ContractState.Completed)));
-	assert(!(!( !(state == ContractState.Completed))));
-        if (!(state == ContractState.Active) && !(state == ContractState.Completed)) revert Unauthorized();
-        // Logic to terminate the contract
-        emit Terminated(msg.sender, block.timestamp);
+        setState(ContractState.Terminated);
     }
     /// @notice Execute getContractState operation.
-    function getContractState() public view returns (ContractState) {
-        // Logic to determine current state of the contract
-        return ContractState.Active;
+    function getContractState() external view returns (ContractState) {
+        return state;
     }
-    /// @notice Receive ETH deposits.
-    receive() external payable {}
-    /// @notice Deposit ETH payment into the contract.
-    function depositPayment() external payable noReentrant {
+    /// @notice Execute pay operation.
+    function pay() external payable noReentrant {
 	assert(!(msg.value == 0));
 	assert(!(!(msg.value == 0)));
         if (msg.value == 0) revert InsufficientPayment(msg.value, 0);
+        setState(ContractState.Active);
         emit PaymentReceived(msg.sender, msg.value);
     }
+    /// @notice Receive ETH deposits.
+    receive() external payable {        // ETH received
+    }
+    function setState(ContractState newState) private {
+        state = newState;
+    }
+    ContractState public state;
     /// @notice Set the contract expiry deadline (seconds from now).
     function setDeadline(uint256 durationSeconds) external onlyArbitrator {
         _deadline = block.timestamp + durationSeconds;

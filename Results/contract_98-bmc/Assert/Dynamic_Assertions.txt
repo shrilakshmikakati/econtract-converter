@@ -1,0 +1,18 @@
+35 | 	assert(!(!(msg.sender == _partyA) ));
+36 | 	assert(!(!(!(msg.sender == _partyA) )));
+37 | 	assert(!( !(msg.sender == _partyB)));
+38 | 	assert(!(!( !(msg.sender == _partyB))));
+43 | 	assert(!(msg.sender != _arbitrator));
+44 | 	assert(!(!(msg.sender != _arbitrator)));
+56 | 	assert(!(_locked));
+57 | 	assert(!(!(_locked)));
+70 | 	assert(!(_state != ContractState.Active));
+71 | 	assert(!(!(_state != ContractState.Active)));
+78 | 	assert(!(_state != ContractState.Active));
+79 | 	assert(!(!(_state != ContractState.Active)));
+86 | 	assert(!(_state != ContractState.Disputed));
+87 | 	assert(!(!(_state != ContractState.Disputed)));
+95 | 	assert(!(_state == ContractState.Terminated));
+96 | 	assert(!(!(_state == ContractState.Terminated)));
+110 | 	assert(!(msg.value == 0));
+111 | 	assert(!(!(msg.value == 0)));

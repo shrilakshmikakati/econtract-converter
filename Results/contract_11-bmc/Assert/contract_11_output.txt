@@ -1,0 +1,41 @@
+Error: Identifier already declared.
+  --> Results/contract_11-bmc/Assert/contract_11.sol:45:56:
+   |
+45 |     event ContractCreated(address indexed _arbitrator, address indexed _arbitrator, uint256 amount);
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Note: The previous declaration is here:
+  --> Results/contract_11-bmc/Assert/contract_11.sol:45:27:
+   |
+45 |     event ContractCreated(address indexed _arbitrator, address indexed _arbitrator, uint256 amount);
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_11-bmc/Assert/contract_11.sol:100:30:
+    |
+100 | 	assert(!(block.timestamp <= _deadline));
+    | 	                            ^^^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_11-bmc/Assert/contract_11.sol:101:32:
+    |
+101 | 	assert(!(!(block.timestamp <= _deadline)));
+    | 	                              ^^^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_11-bmc/Assert/contract_11.sol:102:32:
+    |
+102 |         if (block.timestamp <= _deadline) return 0;
+    |                                ^^^^^^^^^
+
+Error: Undeclared identifier.
+   --> Results/contract_11-bmc/Assert/contract_11.sol:103:47:
+    |
+103 |         uint256 daysLate = (block.timestamp - _deadline) / 1 days;
+    |                                               ^^^^^^^^^
+
+Error: Undeclared identifier. Did you mean "deadline_"?
+   --> Results/contract_11-bmc/Assert/contract_11.sol:134:66:
+    |
+134 |         return (_partyA, _partyB, _arbitrator, uint8(_state), 0, _deadline);
+    |                                                                  ^^^^^^^^^
+
